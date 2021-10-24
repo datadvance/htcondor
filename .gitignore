@@ -9,6 +9,12 @@
 CMakeCache.txt
 CMakeFiles/
 DartConfiguration.tcl
+release_dir/
+externals/
+bindings/
+src/classad/include/
+src/condor_tests/
+src/condor_tools/
 
 !doc/Makefile
 !doc/makeman/Makefile

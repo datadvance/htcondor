@@ -51,6 +51,7 @@
 #include "schedd_negotiate.h"
 
 #include <vector>
+#include <algorithm>
 
 extern Scheduler scheduler;
 extern DedicatedScheduler dedicated_scheduler;
@@ -71,6 +72,97 @@ const int DedicatedScheduler::MPIShadowSockTimeout = 60;
 
 void removeFromList(SimpleList<PROC_ID> *, CAList *);
 
+// List of broken executer hostnames.
+std::vector<std::string> _pbc;
+
+// List of broken jobs (cluster).
+std::vector<int> _pbj;
+
+// File with list of executers marked as broken.
+const char *beFile = "/var/log/condor/.broken_executers";
+
+/**
+ * DA-KLUGE!!! Uses to mark killed executers/jobs by K8s.
+ * 
+ * Method puts broken job to the HOLD state and release claimed resources, also
+ * keeps broken executor hostname in the broken list.
+ */
+void DedicatedScheduler::markExecuterBroken(match_rec* mrec) {
+	
+	dprintf( D_ALWAYS, "DBG: Marking job cluster %d and executor %s as broken...\n", mrec->cluster, mrec->executorHostname().c_str());
+
+	// Mark job cluster as broken.
+	if (std::find(_pbj.begin(), _pbj.end(), mrec->cluster) == _pbj.end()) {
+		dprintf( D_ALWAYS, "DBG: Mark job cluster %d as broken\n", mrec->cluster);
+		_pbj.push_back(mrec->cluster);
+	} else {
+		dprintf( D_ALWAYS, "DBG: Job cluster %d already marked as broken\n", mrec->cluster);
+		return;
+	}
+
+	// Mark hostname as broken.
+	if (std::find(_pbc.begin(), _pbc.end(), mrec->executorHostname()) == _pbc.end()) {
+		dprintf( D_ALWAYS, "DBG: Mark executor %s as broken\n", mrec->executorHostname().c_str());
+		_pbc.push_back(mrec->executorHostname());
+	} 
+
+	dprintf( D_ALWAYS, "DBG: Writing details about broken exectutors to %s...\n", beFile);
+	
+	FILE *fptr;
+	fptr = fopen(beFile,"w");
+	if(fptr != NULL) {
+		for(std::size_t i = 0; i < _pbc.size(); ++i) {
+			fprintf(fptr,"%s\n",_pbc[i].c_str());
+		}
+		fclose(fptr);
+	} else {
+		dprintf( D_ALWAYS, "DBG: ERROR: can't write to %s.", beFile);
+	}
+
+	// Shutting down all associated jobs.
+
+	dprintf( D_ALWAYS, "DBG: Shutting down all associated jobs...\n");
+
+	shadow_rec*		srec;
+	int pid = mrec->shadowRec->pid;
+	srec = scheduler.FindSrecByPid( pid );
+	if( !srec ) {
+			// Can't find the shadow record!  This is bad.
+		dprintf( D_ALWAYS, "DBG: ERROR: Can't find shadow record for pid %d!\n" 
+				 "\t\tAborting DedicatedScheduler::reaper()\n", pid );
+				  return;
+	}
+
+	dprintf( D_ALWAYS, "DBG: Putting job %d.%d on hold, pid: %d \n",
+				srec->job_id.cluster, srec->job_id.proc, pid );
+	set_job_status( srec->job_id.cluster, srec->job_id.proc,
+					HELD );
+
+	dprintf( D_ALWAYS, "DBG: Shutting down MPI job %d.%d on hold, pid: %d \n",
+				srec->job_id.cluster, srec->job_id.proc, pid );
+	shutdownMpiJob( srec );
+		
+}
+
+/**
+ * Return true if executor hostname listed as broken.
+ */
+bool isExecuterBroken(match_rec* mrec) {
+	if (std::find(_pbc.begin(), _pbc.end(), mrec->executorHostname()) != _pbc.end()) {		
+		return true;
+	} 
+	return false;
+}
+
+/**
+ * Return true if executor hostname listed as broken.
+ */
+bool isExecuterBroken(std::string executorHostname) {
+	if (std::find(_pbc.begin(), _pbc.end(), executorHostname) != _pbc.end()) {		
+		return true;
+	} 
+	return false;
+}
 //////////////////////////////////////////////////////////////
 //  AllocationNode
 //////////////////////////////////////////////////////////////
@@ -116,11 +208,7 @@ AllocationNode::setClaimId( const char* new_id )
 void
 AllocationNode::display( void ) const
 {
-	const int level = D_FULLDEBUG;
-	if( ! IsFulldebug(D_FULLDEBUG) ) {
-		return;
-	}
-	dprintf( level, "Allocation for job %d.0, nprocs: %d\n",
+	dprintf( D_ALWAYS, "Allocation for job %d.0, nprocs: %d\n",
 			 cluster, num_procs );
 	int p, n, num_nodes;
 	MRecArray* ma;
@@ -136,7 +224,7 @@ AllocationNode::display( void ) const
 			mrec = (*ma)[n];
 			if( mrec ) {
 				snprintf( buf, 256, "%d.%d.%d: ", cluster, p, n );
-				displayResource( mrec->my_match_ad, buf, level );
+				displayResource( mrec->my_match_ad, buf, D_ALWAYS );
 			}
 		}
 	}
@@ -244,7 +332,7 @@ ResList::satisfyJobs( CAList *jobs,
     // Address the case of empty resource list up front
     if (this->Number() <= 0) return false;
 
-    dprintf(D_FULLDEBUG, "satisfyJobs: testing %d jobs against %d slots\n", (int)jobs->Number(), (int)this->Number());
+    dprintf(D_ALWAYS, "satisfyJobs: testing %d jobs against %d slots\n", (int)jobs->Number(), (int)this->Number());
 
 	jobs->Rewind();
 
@@ -267,20 +355,31 @@ ResList::satisfyJobs( CAList *jobs,
 		}
 	}
 
-		// Foreach job in the given list
+	std::size_t pos;
+	std::string executorHostname;
+
+	// Foreach job in the given list
 	while (ClassAd *job = jobs->Next()) {
         int cluster=0;
         int proc=0;
         job->LookupInteger(ATTR_CLUSTER_ID, cluster);
         job->LookupInteger(ATTR_PROC_ID, proc);
-        dprintf(D_FULLDEBUG, "satisfyJobs: finding resources for %d.%d\n", cluster, proc);
+        dprintf(D_ALWAYS, "satisfyJobs: finding resources for %d.%d\n", cluster, proc);
 		this->Rewind();
 		while (ClassAd* candidate = this->Next()) {
+			std::string slotname;
+			candidate->LookupString(ATTR_NAME, slotname);
+
+			// Do not assign new jobs to the broken executor.
+			pos = slotname.find("@") + 1;   
+			executorHostname = slotname.substr(pos);
+			if (isExecuterBroken(executorHostname)) {
+				continue;
+			}
+
 			if (satisfies(job, candidate)) {
                 // There's a match
-                std::string slotname;
-                candidate->LookupString(ATTR_NAME, slotname);
-                dprintf(D_FULLDEBUG, "satisfyJobs:     %d.%d satisfied with slot %s\n", cluster, proc, slotname.c_str());
+                dprintf(D_ALWAYS, "satisfyJobs:     %d.%d satisfied with slot %s\n", cluster, proc, slotname.c_str());
 
 				candidates->Insert( candidate );
 				candidates_jobs->Insert( job );
@@ -295,7 +394,7 @@ ResList::satisfyJobs( CAList *jobs,
 
 				if( jobs->Number() == 0) {
 						// No more jobs to match, our work is done.
-                    dprintf(D_FULLDEBUG, "satisfyJobs: jobs were satisfied\n");
+                    dprintf(D_ALWAYS, "satisfyJobs: jobs were satisfied\n");
 					return true;
 				}
 				break; // try to match the next job
@@ -863,9 +962,16 @@ DedicatedScheduler::releaseClaim( match_rec* m_rec )
 
 	DCStartd d( m_rec->peer );
 
+	// Just skip useless action if we know that the executor is already broken.
+	if (isExecuterBroken(m_rec)) {
+		dprintf( D_ALWAYS, "DBG: Skip releasing claim on broken executer %s\n", m_rec->executorHostname().c_str()); 
+		return false;
+	}
+
     rsock.timeout(2);
 	if (!rsock.connect( m_rec->peer)) {
-        dprintf( D_ALWAYS, "ERROR in releaseClaim(): canot connect to startd %s\n", m_rec->peer); 
+		dprintf( D_ALWAYS, "ERROR in releaseClaim(): cannot connect to startd %s\n", m_rec->peer); 
+		markExecuterBroken(m_rec);
 		return false;
 	}
 
@@ -893,18 +999,24 @@ DedicatedScheduler::deactivateClaim( match_rec* m_rec )
 	ReliSock sock;
 	ClassAd responseAd;
 
-	dprintf( D_FULLDEBUG, "DedicatedScheduler::deactivateClaim\n");
+	dprintf( D_ALWAYS, "DedicatedScheduler::deactivateClaim\n");
 
 	if( ! m_rec ) {
         dprintf( D_ALWAYS, "ERROR in deactivateClaim(): NULL m_rec\n" ); 
 		return false;
 	}
 
-    sock.timeout( STARTD_CONTACT_TIMEOUT );
+	// Just skip useless action if we know that the executor is already broken.
+	if (isExecuterBroken(m_rec)) {
+		dprintf( D_ALWAYS, "DBG: Skip deactivating claim on broken executer %s\n", m_rec->executorHostname().c_str()); 
+		return false;
+	}
 
+    sock.timeout( STARTD_CONTACT_TIMEOUT );
 	if( !sock.connect(m_rec->peer, 0) ) {
         dprintf( D_ALWAYS, "ERROR in deactivateClaim(): "
 				 "Couldn't connect to startd.\n" );
+		markExecuterBroken(m_rec);
 		return false;
 	}
 
@@ -1463,7 +1575,7 @@ DedicatedScheduler::sortJobs( void )
 int
 DedicatedScheduler::handleDedicatedJobs( void )
 {
-	dprintf( D_FULLDEBUG, "Starting "
+	dprintf( D_ALWAYS, "Starting "
 			 "DedicatedScheduler::handleDedicatedJobs\n" );
 
 	static time_t lastRun = 0;
@@ -1720,7 +1832,7 @@ DedicatedScheduler::sortResources( void )
 
         // getMrec from the dec sched -- won't have matches for non dedicated jobs
         match_rec* mrec = NULL;
-	std::string buf;
+		std::string buf;
         if( ! (mrec = getMrec(res, buf)) ) {
 			// We don't have a match_rec for this resource yet, so
 			// put it in our unclaimed_resources list
@@ -1931,8 +2043,11 @@ DedicatedScheduler::spawnJobs( void )
 	int i, p, n;
 	PROC_ID id;
 
+	dprintf( D_ALWAYS, "DBG: DedicatedScheduler::spawnJobs call." );
+
 	if( ! allocations ) {
 			// Nothing to do
+		dprintf( D_ALWAYS, "DBG: DedicatedScheduler::spawnJobs Nothing to do." );
 		return true;
 	}
 
@@ -1962,7 +2077,7 @@ DedicatedScheduler::spawnJobs( void )
 			EXCEPT( "spawnJobs(): allocation node has NULL first match!" );
 		}
 
-		dprintf( D_FULLDEBUG, "DedicateScheduler::spawnJobs() - "
+		dprintf( D_ALWAYS, "DedicateScheduler::spawnJobs() - "
 				 "job=%d.%d on %s\n", id.cluster, id.proc, mrec->peer );
 
 		GetAttributeInt( id.cluster, id.proc, ATTR_JOB_UNIVERSE, &univ );
@@ -2265,12 +2380,12 @@ DedicatedScheduler::computeSchedule( void )
 			while (jobsToReconnect.Next(reconId)) {
 				if ((reconId.cluster == cluster) &&
 				    (reconId.proc    == proc_id)) {
-					dprintf(D_FULLDEBUG, "skipping %d.%d because it is waiting to reconnect\n", cluster, proc_id);
+					dprintf(D_ALWAYS, "Skipping %d.%d because it is waiting to reconnect\n", cluster, proc_id);
 					give_up = true;
 					break;
 				}
 			}
-			dprintf( D_FULLDEBUG, 
+			dprintf( D_ALWAYS, 
 					 "Trying to find %d resource(s) for dedicated job %d.%d\n",
 					 hosts, cluster, proc_id );
 
@@ -2926,11 +3041,26 @@ DedicatedScheduler::createAllocations( CAList *idle_candidates,
 		node++;
 	}
 	
-	ASSERT( allocations->insert( cluster, alloc ) == 0 );
+	// DA-KLUGE!!! The sched fails if one or many executers disappear.
+	// 2021-10-17T13:52:30.896566762Z condor_schedd[12521]: ERROR "Assertion 
+	// ERROR on (allocations->insert( cluster, alloc ) == 0)" at line 2929 in 
+	// file /var/lib/condor/execute/slot1/dir_26614/userdir/.tmpdakAr8/condor-8.
+	// 9.11/src/condor_schedd.V6/dedicated_scheduler.cpp
+	// Original code: 
+	// ASSERT( allocations->insert( cluster, alloc ) == 0 );
+	// Just KLUGE with removing assertion.
+	
+	allocations->insert( cluster, alloc );
 
-		// Show world what we did
+	// Show world what we did
 	alloc->display();
 
+	// Print also all allocations details.
+	AllocationNode* foo;
+    allocations->startIterations();	
+    while( allocations->iterate( foo ) ) {
+		foo->display();
+	}
 }
 
 
@@ -2948,7 +3078,7 @@ DedicatedScheduler::removeAllocation( shadow_rec* srec )
 		EXCEPT( "DedicatedScheduler::removeAllocation: srec is NULL!" );
 	}
 
-	dprintf( D_FULLDEBUG, "DedicatedScheduler::removeAllocation, "
+	dprintf( D_ALWAYS, "DedicatedScheduler::removeAllocation, "
 			 "cluster %d\n", srec->job_id.cluster );
 
 	if( allocations->lookup( srec->job_id.cluster, alloc ) < 0 ) {
@@ -3177,7 +3307,7 @@ DedicatedScheduler::shutdownMpiJob( shadow_rec* srec , bool kill /* = false */)
 		EXCEPT( "DedicatedScheduler::shutdownMpiJob: srec is NULL!" );
 	}
 
-	dprintf( D_FULLDEBUG, "DedicatedScheduler::shutdownMpiJob, cluster %d\n", 
+	dprintf( D_ALWAYS, "DedicatedScheduler::shutdownMpiJob, cluster %d\n", 
 			 srec->job_id.cluster );
 
 	if( allocations->lookup( srec->job_id.cluster, alloc ) < 0 ) {
@@ -3645,7 +3775,7 @@ DedicatedScheduler::preemptResources() {
 void
 DedicatedScheduler::displayResourceRequests( void )
 {
-	dprintf( D_FULLDEBUG,
+	dprintf( D_ALWAYS,
 			 "Waiting to negotiate for %lu dedicated resource request(s)\n",
 			 (unsigned long)resource_requests.size() );
 }
@@ -3743,7 +3873,7 @@ DedicatedScheduler::checkSanity( void )
 		return;
 	}
 
-	dprintf( D_FULLDEBUG, "Entering DedicatedScheduler::checkSanity()\n" );
+	dprintf( D_ALWAYS, "Entering DedicatedScheduler::checkSanity()\n" );
 
 		// Maximum unused time for all claims that aren't already over
 		// the config-file-specified limit.
@@ -3792,7 +3922,7 @@ DedicatedScheduler::checkSanity( void )
 				// timer for the new value and everything will work.
 			daemonCore->Reset_Timer( sanity_tid, tmp );
 		}
-		dprintf( D_FULLDEBUG, "Timer (%d) will call checkSanity() "
+		dprintf( D_ALWAYS, "Timer (%d) will call checkSanity() "
 				 "again in %d seconds\n", sanity_tid, tmp );
 	} else {
 			// We have no unused claims, so we don't need to call
@@ -4513,7 +4643,14 @@ displayResource( ClassAd* ad, const char* str, int debug_level )
 	ad->LookupString( ATTR_NAME, name, sizeof(name) );
 	ad->LookupString( ATTR_OPSYS, opsys, sizeof(opsys) );
 	ad->LookupString( ATTR_ARCH, arch, sizeof(arch) );
-	dprintf( debug_level, "%s%s\t%s\t%s\n", str, opsys, arch, name );
+	
+	ExprTree* expr;
+	expr = ad->LookupExpr( ATTR_PUBLIC_CLAIM_ID );
+	if (expr) {
+		dprintf( debug_level, "%s%s\t%s\t%s, %s\n", str, opsys, arch, name, ExprTreeToString( expr ));
+	} else {
+		dprintf( debug_level, "%s%s\t%s\t%s\n", str, opsys, arch, name);
+	}
 }
 
 

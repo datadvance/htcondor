@@ -613,6 +613,15 @@ RemoteResource::activateClaim( int starterVersion )
 bool
 RemoteResource::killStarter( bool graceful )
 {
+	// DA-KLUGE!!!
+	// Original issue is here: https://github.com/herclogon/htcondor/issues/2
+	// Looks like the startd with CLAIM_WORKFILE=0 influences the shadow 
+	// shutdown process, as result new jobs scheduling gets stuck.
+	// Just try to add a delay to prevent possible race condition.
+	shadow->dprintf( D_ALWAYS, "DBG: RemoteResource::killStarter is called: "
+						 "Waiting 5 sec. before processing!\n");
+	sleep(5);
+
 	if( (graceful && already_killed_graceful) ||
 		(!graceful && already_killed_fast) ) {
 			// we've already sent this command to the startd.  we can

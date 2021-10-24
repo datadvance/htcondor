@@ -197,6 +197,9 @@ class DedicatedScheduler : public Service {
 	DedicatedScheduler();
 	~DedicatedScheduler();
 
+	// DA-KLUGE!!! Uses to mark killed executers/jobs by K8s.
+	void markExecuterBroken(match_rec *mrec);
+
 		// Called at start-up to initialize this class.  This does the
 		// work of finding which dedicated resources we control, and
 		// starting the process of claiming them.

@@ -359,10 +359,8 @@ DCStartd::deactivateClaim( bool graceful, bool *claim_is_closing )
 	ClaimIdParser cidp(claim_id);
 	char const *sec_session = cidp.secSessionId();
 
-	if (IsDebugLevel(D_COMMAND)) {
-		int cmd = graceful ? DEACTIVATE_CLAIM : DEACTIVATE_CLAIM_FORCIBLY;
-		dprintf (D_COMMAND, "DCStartd::deactivateClaim(%s,...) making connection to %s\n", getCommandStringSafe(cmd), _addr ? _addr : "NULL");
-	}
+	int cmd = graceful ? DEACTIVATE_CLAIM : DEACTIVATE_CLAIM_FORCIBLY;
+	dprintf (D_ALWAYS, "DCStartd::deactivateClaim(%s,...) making connection to %s\n", getCommandStringSafe(cmd), _addr ? _addr : "NULL");
 
 	bool  result;
 	ReliSock reli_sock;
@@ -374,12 +372,6 @@ DCStartd::deactivateClaim( bool graceful, bool *claim_is_closing )
 		err += ')';
 		newError( CA_CONNECT_FAILED, err.c_str() );
 		return false;
-	}
-	int cmd;
-	if( graceful ) {
-		cmd = DEACTIVATE_CLAIM;
-	} else {
-		cmd = DEACTIVATE_CLAIM_FORCIBLY;
 	}
 	result = startCommand( cmd, (Sock*)&reli_sock, 20, NULL, NULL, false, sec_session ); 
 	if( ! result ) {
@@ -433,7 +425,7 @@ DCStartd::activateClaim( ClassAd* job_ad, int starter_version,
 						 ReliSock** claim_sock_ptr ) 
 {
 	int reply;
-	dprintf( D_FULLDEBUG, "Entering DCStartd::activateClaim()\n" );
+	dprintf( D_ALWAYS, "Entering DCStartd::activateClaim()\n" );
 
 	setCmdStr( "activateClaim" );
 
