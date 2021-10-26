@@ -1008,7 +1008,7 @@ DedicatedScheduler::releaseClaim( match_rec* m_rec )
 		markExecuterBroken(m_rec);
 		return false;
 	} else {
-		markExecuterUnbroken(m_rec);
+		// markExecuterUnbroken(m_rec);
 	}
 
 	rsock.encode();
@@ -1055,7 +1055,7 @@ DedicatedScheduler::deactivateClaim( match_rec* m_rec )
 		markExecuterBroken(m_rec);
 		return false;
 	} else {
-		markExecuterUnbroken(m_rec);
+		// markExecuterUnbroken(m_rec);
 	}
 
 	DCStartd d( m_rec->peer );
