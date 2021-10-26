@@ -3088,10 +3088,11 @@ DedicatedScheduler::createAllocations( CAList *idle_candidates,
 	// ASSERT( allocations->insert( cluster, alloc ) == 0 );
 	// Just KLUGE with removing assertion.
 	
-	allocations->insert( cluster, alloc );
-
+	dprintf( D_ALWAYS, "DBG: allocations->insert: %d\n", cluster );
 	// Show world what we did
 	alloc->display();
+
+	allocations->insert( cluster, alloc );
 
 	// Print also all allocations details.
 	AllocationNode* foo;
