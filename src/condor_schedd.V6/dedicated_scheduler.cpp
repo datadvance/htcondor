@@ -4393,8 +4393,8 @@ DedicatedScheduler::checkReconnectQueue( void ) {
 
 			mrec->setStatus(M_CLAIMED);
 
-			ASSERT( all_matches->insert(host, mrec) == 0 );
-			ASSERT( all_matches_by_id->insert(mrec->claimId(), mrec) == 0 );
+			all_matches->insert(host, mrec);
+			all_matches_by_id->insert(mrec->claimId(), mrec);
 
 			jobsToAllocate.Append(job);
 
