@@ -4192,7 +4192,7 @@ DedicatedScheduler::checkReconnectQueue( void ) {
 	jobsToReconnect.Rewind();
 	while( jobsToReconnect.Next(id) ) {
 			// there's a pending registration in the queue:
-		dprintf( D_FULLDEBUG, "In checkReconnectQueue(), job: %d.%d\n", 
+		dprintf( D_ALWAYS, "In checkReconnectQueue(), job: %d.%d\n", 
 				 id.cluster, id.proc );
 	
 		ClassAd *job = GetJobAd(id.cluster, id.proc);
@@ -4257,7 +4257,7 @@ DedicatedScheduler::checkReconnectQueue( void ) {
 	jobsToReconnect.Rewind();
 	while( jobsToReconnect.Next(id) ) {
 	
-		dprintf(D_FULLDEBUG, "Trying to find machines for job (%d.%d)\n",
+		dprintf(D_ALWAYS, "Trying to find machines for job (%d.%d)\n",
 			id.cluster, id.proc);
 
 			// we've rolled over to a new job with procid 0
@@ -4342,7 +4342,7 @@ DedicatedScheduler::checkReconnectQueue( void ) {
 				char *mach_name=NULL;
 				machineAd->LookupString( ATTR_NAME, &mach_name);
 
-				dprintf( D_FULLDEBUG, "Trying to match %s to %s\n", mach_name, host);
+				dprintf( D_ALWAYS, "Trying to match %s to %s\n", mach_name, host);
 				if (strcmp(mach_name, host) == 0) {
 					machines.DeleteCurrent();
 					free(mach_name);
@@ -4385,7 +4385,7 @@ DedicatedScheduler::checkReconnectQueue( void ) {
 				continue;
 			}
 
-			dprintf(D_FULLDEBUG, "Dedicated Scheduler:: reconnect target address is %s; claim is %s\n", sinful, claim);
+			dprintf(D_ALWAYS, "Dedicated Scheduler:: reconnect target address is %s; claim is %s\n", sinful, claim);
 
 			match_rec *mrec = 
 				new match_rec(claim, sinful, &id,
