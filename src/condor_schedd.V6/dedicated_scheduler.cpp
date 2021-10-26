@@ -72,8 +72,8 @@ const int DedicatedScheduler::MPIShadowSockTimeout = 60;
 
 void removeFromList(SimpleList<PROC_ID> *, CAList *);
 
-// List of broken executer hostnames.
-std::vector<std::string> _pbc;
+// List of possibly broken executor hostnames.
+std::vector<std::string> _pbh;
 
 // List of broken jobs (cluster).
 std::vector<int> _pbj;
@@ -101,9 +101,9 @@ void DedicatedScheduler::markExecuterBroken(match_rec* mrec) {
 	}
 
 	// Mark hostname as broken.
-	if (std::find(_pbc.begin(), _pbc.end(), mrec->executorHostname()) == _pbc.end()) {
+	if (std::find(_pbh.begin(), _pbh.end(), mrec->executorHostname()) == _pbh.end()) {
 		dprintf( D_ALWAYS, "DBG: Mark executor %s as broken\n", mrec->executorHostname().c_str());
-		_pbc.push_back(mrec->executorHostname());
+		_pbh.push_back(mrec->executorHostname());
 	} 
 
 	dprintf( D_ALWAYS, "DBG: Writing details about broken exectutors to %s...\n", beFile);
@@ -111,8 +111,8 @@ void DedicatedScheduler::markExecuterBroken(match_rec* mrec) {
 	FILE *fptr;
 	fptr = fopen(beFile,"w");
 	if(fptr != NULL) {
-		for(std::size_t i = 0; i < _pbc.size(); ++i) {
-			fprintf(fptr,"%s\n",_pbc[i].c_str());
+		for(std::size_t i = 0; i < _pbh.size(); ++i) {
+			fprintf(fptr,"%s\n",_pbh[i].c_str());
 		}
 		fclose(fptr);
 	} else {
@@ -150,10 +150,39 @@ void DedicatedScheduler::markExecuterBroken(match_rec* mrec) {
 }
 
 /**
+ * DA-KLUGE!!! Mark executer unbroken if got successful connection after fail.
+ * 
+ * Method puts broken job to the HOLD state and release claimed resources, also
+ * keeps broken executor hostname in the broken list.
+ */
+void DedicatedScheduler::markExecuterUnbroken(match_rec* mrec) {
+	// Do nothing if executor is not marked as broken.
+	if (std::find(_pbh.begin(), _pbh.end(), mrec->executorHostname()) == _pbh.end()) {
+		return;
+	} 
+	
+	dprintf( D_ALWAYS, "DBG: Marking job cluster %d and executor %s as UNBROKEN...\n", mrec->cluster, mrec->executorHostname().c_str());
+	_pbh.erase(std::remove(_pbh.begin(), _pbh.end(), mrec->executorHostname()), _pbh.end());
+
+	dprintf( D_ALWAYS, "DBG: Writing details about broken exectutors to %s...\n", beFile);
+	
+	FILE *fptr;
+	fptr = fopen(beFile,"w");
+	if(fptr != NULL) {
+		for(std::size_t i = 0; i < _pbh.size(); ++i) {
+			fprintf(fptr,"%s\n",_pbh[i].c_str());
+		}
+		fclose(fptr);
+	} else {
+		dprintf( D_ALWAYS, "DBG: ERROR: can't write to %s.", beFile);
+	}
+}
+
+/**
  * Return true if executor hostname listed as broken.
  */
 bool isExecuterBroken(match_rec* mrec) {
-	if (std::find(_pbc.begin(), _pbc.end(), mrec->executorHostname()) != _pbc.end()) {		
+	if (std::find(_pbh.begin(), _pbh.end(), mrec->executorHostname()) != _pbh.end()) {		
 		return true;
 	} 
 	return false;
@@ -163,7 +192,7 @@ bool isExecuterBroken(match_rec* mrec) {
  * Return true if executor hostname listed as broken.
  */
 bool isExecuterBroken(std::string executorHostname) {
-	if (std::find(_pbc.begin(), _pbc.end(), executorHostname) != _pbc.end()) {		
+	if (std::find(_pbh.begin(), _pbh.end(), executorHostname) != _pbh.end()) {		
 		return true;
 	} 
 	return false;
@@ -978,6 +1007,8 @@ DedicatedScheduler::releaseClaim( match_rec* m_rec )
 		dprintf( D_ALWAYS, "ERROR in releaseClaim(): cannot connect to startd %s\n", m_rec->peer); 
 		markExecuterBroken(m_rec);
 		return false;
+	} else {
+		markExecuterUnbroken(m_rec);
 	}
 
 	rsock.encode();
@@ -1023,6 +1054,8 @@ DedicatedScheduler::deactivateClaim( match_rec* m_rec )
 				 "Couldn't connect to startd.\n" );
 		markExecuterBroken(m_rec);
 		return false;
+	} else {
+		markExecuterUnbroken(m_rec);
 	}
 
 	DCStartd d( m_rec->peer );
