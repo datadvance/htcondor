@@ -120,28 +120,33 @@ void DedicatedScheduler::markExecuterBroken(match_rec* mrec) {
 	}
 
 	// Shutting down all associated jobs.
+	if (mrec->cluster != -1)  {
+		dprintf( D_ALWAYS, "DBG: Shutting down all associated jobs...\n");
 
-	dprintf( D_ALWAYS, "DBG: Shutting down all associated jobs...\n");
+		shadow_rec* srec;
+		if (!mrec->shadowRec) {
+			dprintf( D_ALWAYS, "DBG: mrec->shadowRec is not set...\n");
+			return;
+		}
 
-	shadow_rec*		srec;
-	int pid = mrec->shadowRec->pid;
-	srec = scheduler.FindSrecByPid( pid );
-	if( !srec ) {
+		int pid = mrec->shadowRec->pid;
+		srec = scheduler.FindSrecByPid( pid );
+		if( !srec ) {
 			// Can't find the shadow record!  This is bad.
-		dprintf( D_ALWAYS, "DBG: ERROR: Can't find shadow record for pid %d!\n" 
-				 "\t\tAborting DedicatedScheduler::reaper()\n", pid );
-				  return;
+			dprintf( D_ALWAYS, "DBG: ERROR: Can't find shadow record for pid %d!\n" 
+					"\t\tAborting DedicatedScheduler::reaper()\n", pid );
+					return;
+		}
+
+		dprintf( D_ALWAYS, "DBG: Putting job %d.%d on hold, pid: %d \n",
+					srec->job_id.cluster, srec->job_id.proc, pid );
+		set_job_status( srec->job_id.cluster, srec->job_id.proc,
+						HELD );
+
+		dprintf( D_ALWAYS, "DBG: Shutting down MPI job %d.%d on hold, pid: %d \n",
+					srec->job_id.cluster, srec->job_id.proc, pid );
+		shutdownMpiJob( srec );
 	}
-
-	dprintf( D_ALWAYS, "DBG: Putting job %d.%d on hold, pid: %d \n",
-				srec->job_id.cluster, srec->job_id.proc, pid );
-	set_job_status( srec->job_id.cluster, srec->job_id.proc,
-					HELD );
-
-	dprintf( D_ALWAYS, "DBG: Shutting down MPI job %d.%d on hold, pid: %d \n",
-				srec->job_id.cluster, srec->job_id.proc, pid );
-	shutdownMpiJob( srec );
-		
 }
 
 /**
