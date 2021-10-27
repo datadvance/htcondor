@@ -66,9 +66,14 @@ Daemon::common_init() {
 	_full_hostname = NULL;
 	_cmd_str = NULL;
 	m_daemon_ad_ptr = NULL;
+
+	dprintf( D_ALWAYS, "D9" ); 
+
 	char buf[200];
 	sprintf(buf,"%s_TIMEOUT_MULTIPLIER",get_mySubSystem()->getName() );
+	dprintf( D_ALWAYS, "D10" ); 
 	Sock::set_timeout_multiplier( param_integer(buf, param_integer("TIMEOUT_MULTIPLIER", 0)) );
+	dprintf( D_ALWAYS, "D11" ); 
 	dprintf(D_DAEMONCORE, "*** TIMEOUT_MULTIPLIER :: %d\n", Sock::get_timeout_multiplier());
 	m_has_udp_command_port = true;
 }
@@ -88,22 +93,33 @@ Daemon::Daemon( daemon_t tType, const char* tName, const char* tPool )
 		EXCEPT ( "Daemon constructor (type=COLLECTOR, name=NULL) called" );
 		}*/
 
+	dprintf( D_ALWAYS, "D0" ); 
 	common_init();
 	_type = tType;
+	dprintf( D_ALWAYS, "D1" ); 
 
 	if( tPool ) {
+		dprintf( D_ALWAYS, "D7" ); 
 		_pool = strdup( tPool );
 	} else {
+		dprintf( D_ALWAYS, "D8" ); 
 		_pool = NULL;
 	}
 
+	dprintf( D_ALWAYS, "D2" ); 
+
 	if( tName && tName[0] ) {
 		if( is_valid_sinful(tName) ) {
+			dprintf( D_ALWAYS, "D5" ); 
 			New_addr( strdup(tName) );
 		} else {
+			dprintf( D_ALWAYS, "D6" ); 
 			_name = strdup( tName );
 		}
 	} 
+
+	dprintf( D_ALWAYS, "D3" ); 
+
 	dprintf( D_HOSTNAME, "New Daemon obj (%s) name: \"%s\", pool: "  
 			 "\"%s\", addr: \"%s\"\n", daemonString(_type), 
 			 _name ? _name : "NULL", _pool ? _pool : "NULL",

@@ -14079,7 +14079,7 @@ Scheduler::attempt_shutdown()
 void
 Scheduler::shutdown_graceful()
 {
-	dprintf( D_FULLDEBUG, "Now in shutdown_graceful\n" );
+	dprintf( D_ALWAYS, "Now in shutdown_graceful\n" );
 
 	// If there's nothing to do, shutdown
 	if(  ( numShadows == 0 ) && SchedUniverseJobsRunning == 0 &&
