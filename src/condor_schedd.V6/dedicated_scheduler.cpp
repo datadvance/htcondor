@@ -404,12 +404,12 @@ ResList::satisfyJobs( CAList *jobs,
 			std::string slotname;
 			candidate->LookupString(ATTR_NAME, slotname);
 
-			// Do not assign new jobs to the broken executor.
-			pos = slotname.find("@") + 1;   
-			executorHostname = slotname.substr(pos);
-			if (isExecuterBroken(executorHostname)) {
-				continue;
-			}
+			// // Do not assign new jobs to the broken executor.
+			// pos = slotname.find("@") + 1;   
+			// executorHostname = slotname.substr(pos);
+			// if (isExecuterBroken(executorHostname)) {
+			// 	continue;
+			// }
 
 			if (satisfies(job, candidate)) {
                 // There's a match
