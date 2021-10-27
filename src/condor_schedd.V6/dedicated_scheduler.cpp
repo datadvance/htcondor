@@ -405,11 +405,11 @@ ResList::satisfyJobs( CAList *jobs,
 			candidate->LookupString(ATTR_NAME, slotname);
 
 			// Do not assign new jobs to the broken executor.
-			// pos = slotname.find("@") + 1;   
-			// executorHostname = slotname.substr(pos);
-			// if (isExecuterBroken(executorHostname)) {
-			// 	continue;
-			// }
+			pos = slotname.find("@") + 1;   
+			executorHostname = slotname.substr(pos);
+			if (isExecuterBroken(executorHostname)) {
+				continue;
+			}
 
 			if (satisfies(job, candidate)) {
                 // There's a match
@@ -988,41 +988,63 @@ DedicatedScheduler::releaseClaim( match_rec* m_rec )
 {
     ReliSock rsock;
 
+	dprintf( D_ALWAYS, "#1\n" ); 
+
 	if( ! m_rec ) {
         dprintf( D_ALWAYS, "ERROR in releaseClaim(): NULL m_rec\n" ); 
 		return false;
 	}
 
+	dprintf( D_ALWAYS, "#2\n" ); 
 
+	if (! m_rec->peer) {
+        dprintf( D_ALWAYS, "ERROR in releaseClaim(): m_rec->peer is NULL\n" ); 
+		return false;
+	}
+
+	dprintf( D_ALWAYS, "m_rec->peer: %s\n", m_rec->peer ); 
 	DCStartd d( m_rec->peer );
 
+	dprintf( D_ALWAYS, "#3\n" ); 
+
 	// Just skip useless action if we know that the executor is already broken.
-	// if (isExecuterBroken(m_rec)) {
-	// 	dprintf( D_ALWAYS, "DBG: Skip releasing claim on broken executer %s\n", m_rec->executorHostname().c_str()); 
-	// 	return false;
-	// }
+	if (isExecuterBroken(m_rec)) {
+		dprintf( D_ALWAYS, "DBG: Skip releasing claim on broken executer %s\n", m_rec->executorHostname().c_str()); 
+		return false;
+	}
+
+	dprintf( D_ALWAYS, "#4\n" ); 
 
     rsock.timeout(2);
 	if (!rsock.connect( m_rec->peer)) {
 		dprintf( D_ALWAYS, "ERROR in releaseClaim(): cannot connect to startd %s\n", m_rec->peer); 
-		// markExecuterBroken(m_rec);
+		dprintf( D_ALWAYS, "#5\n" ); 
+		markExecuterBroken(m_rec);
 		return false;
 	} else {
+		dprintf( D_ALWAYS, "#6\n" ); 
 		// markExecuterUnbroken(m_rec);
 	}
 
-	rsock.encode();
-    d.startCommand( RELEASE_CLAIM, &rsock);
-	rsock.put( m_rec->claimId() );
-	rsock.end_of_message();
+	dprintf( D_ALWAYS, "#7\n" ); 
 
-	if( IsFulldebug(D_FULLDEBUG) ) { 
-		char name_buf[256];
-		name_buf[0] = '\0';
-		m_rec->my_match_ad->LookupString( ATTR_NAME, name_buf, sizeof(name_buf) );
-		dprintf( D_FULLDEBUG, "DedicatedScheduler: releasing claim on %s\n", 
-				 name_buf );
-	}
+	rsock.encode();
+
+	dprintf( D_ALWAYS, "#8\n" ); 
+    d.startCommand( RELEASE_CLAIM, &rsock);
+	dprintf( D_ALWAYS, "#9\n" ); 
+	rsock.put( m_rec->claimId() );
+	dprintf( D_ALWAYS, "#10\n" ); 
+	rsock.end_of_message();
+	dprintf( D_ALWAYS, "#11\n" ); 
+
+	char name_buf[256];
+	name_buf[0] = '\0';
+	m_rec->my_match_ad->LookupString( ATTR_NAME, name_buf, sizeof(name_buf) );
+	dprintf( D_FULLDEBUG, "DedicatedScheduler: releasing claim on %s\n", 
+				name_buf );
+
+	dprintf( D_ALWAYS, "#12\n" ); 
 
 	DelMrec( m_rec );
 	return true;
@@ -1042,19 +1064,33 @@ DedicatedScheduler::deactivateClaim( match_rec* m_rec )
 		return false;
 	}
 
+	if( ! m_rec->peer ) {
+        dprintf( D_ALWAYS, "ERROR in deactivateClaim(): m_rec->peer is NULL\n" ); 
+		return false;
+	}
+
+	dprintf( D_ALWAYS, "DC #1\n");
+
 	// Just skip useless action if we know that the executor is already broken.
-	// if (isExecuterBroken(m_rec)) {
-	// 	dprintf( D_ALWAYS, "DBG: Skip deactivating claim on broken executer %s\n", m_rec->executorHostname().c_str()); 
-	// 	return false;
-	// }
+	if (isExecuterBroken(m_rec)) {
+		dprintf( D_ALWAYS, "DBG: Skip deactivating claim on broken executer %s\n", m_rec->executorHostname().c_str()); 
+		return false;
+	}
+
+	dprintf( D_ALWAYS, "DC #2: %s\n", m_rec->peer);
 
     sock.timeout( STARTD_CONTACT_TIMEOUT );
+
+	dprintf( D_ALWAYS, "DC #2.5: %s\n", m_rec->peer);
+
 	if( !sock.connect(m_rec->peer, 0) ) {
         dprintf( D_ALWAYS, "ERROR in deactivateClaim(): "
 				 "Couldn't connect to startd.\n" );
-		// markExecuterBroken(m_rec);
+		markExecuterBroken(m_rec);
 		return false;
 	} 
+
+	dprintf( D_ALWAYS, "DC #3\n");
 
 	DCStartd d( m_rec->peer );
 	if (!d.startCommand(DEACTIVATE_CLAIM, &sock)) {
@@ -1063,6 +1099,8 @@ DedicatedScheduler::deactivateClaim( match_rec* m_rec )
 		return false;
 	}
 
+	dprintf( D_ALWAYS, "DC #4\n");
+
 	sock.encode();
 
 	if( !sock.put(m_rec->claimId()) ) {
@@ -1070,22 +1108,35 @@ DedicatedScheduler::deactivateClaim( match_rec* m_rec )
 				 "Can't code ClaimId (%s)\n", m_rec->publicClaimId() );
 		return false;
 	}
+
+	dprintf( D_ALWAYS, "DC #5\n");
+
+
 	if( !sock.end_of_message() ) {
         	dprintf( D_ALWAYS, "ERROR in deactivateClaim(): "
 				 "Can't send EOM\n" );
 		return false;
 	}
+
+	dprintf( D_ALWAYS, "DC #6\n");
 	
 	// Wait for response from the startd to avoid misleading errors.
 	sock.decode();
+
+	dprintf( D_ALWAYS, "DC #7\n");
+
 	// Ignore decode/getClassAd errors - Failure to receive the response classad
 	// should "not be critical in any way" (see comment in startd/command.cpp 
 	//  - deactivate_claim()).
 	getClassAd(&sock, responseAd);
 
+	dprintf( D_ALWAYS, "DC #8\n");
+
 		// Clear out this match rec, since it's no longer allocated to
 		// a given MPI job.
 	deallocMatchRec( m_rec );
+
+	dprintf( D_ALWAYS, "DC #9\n");
 
 	return true;
 }
@@ -2106,10 +2157,14 @@ DedicatedScheduler::spawnJobs( void )
 		id.proc = 0;
 		MRecArray* cur_matches = (*allocation->matches)[0];
 		if( ! cur_matches ) {
+			dprintf( D_ALWAYS, "spawnJobs(): allocation node has no matches!" );
+			// return false;
 			EXCEPT( "spawnJobs(): allocation node has no matches!" );
 		}
 		mrec = (*cur_matches)[0];
 		if( ! mrec ) {
+			dprintf( D_ALWAYS, "spawnJobs(): allocation node has NULL first match!" );
+			// return false;
 			EXCEPT( "spawnJobs(): allocation node has NULL first match!" );
 		}
 
@@ -3091,6 +3146,7 @@ DedicatedScheduler::createAllocations( CAList *idle_candidates,
 	alloc->display();
 
 	int insertResult = allocations->insert( cluster, alloc );
+	// ASSERT(insertResult == 0);
 	dprintf( D_ALWAYS, "DBG: allocations->insert to hash: %d\n", insertResult );
 }
 
@@ -3493,49 +3549,69 @@ DedicatedScheduler::DelMrec( match_rec* rec )
 bool
 DedicatedScheduler::DelMrec( char const* id )
 {
+	dprintf( D_ALWAYS, "E1\n" );
 	match_rec* rec = NULL;
 
+	dprintf( D_ALWAYS, "E1\n" );
 	char name_buf[256];
 	name_buf[0] = '\0';
 
+	dprintf( D_ALWAYS, "E2\n" );
 	if( ! id ) {
 		dprintf( D_ALWAYS, "Null parameter to DelMrec() -- "
 				 "match not deleted\n" );
 		return false;
 	}
+
+	dprintf( D_ALWAYS, "E3\n" );
 	// Check pending_matches
 	std::map<std::string,match_rec*>::iterator it;
 	if((it = pending_matches.find(id)) != pending_matches.end()){
+		dprintf( D_ALWAYS, "E4\n" );
 		rec = it->second;	
-		dprintf( D_FULLDEBUG, "Found record for claim %s in pending matches\n",id);
+		dprintf( D_ALWAYS, "Found record for claim %s in pending matches\n",id);
 		pending_matches.erase(it);
+		dprintf( D_ALWAYS, "E5\n" );
 		std::map<std::string,ClassAd*>::iterator rit;
+		dprintf( D_ALWAYS, "E6\n" );
 		if((rit = pending_requests.find(rec->publicClaimId())) != pending_requests.end()){
+			dprintf( D_ALWAYS, "E7\n" );
 			if(rit->second){
+				dprintf( D_ALWAYS, "E8\n" );
 				delete rit->second;
 				pending_requests.erase(rit);
 			}
 		}
+		dprintf( D_ALWAYS, "E9\n" );
 		std::map<std::string,std::string>::iterator cit;
 		if((cit = pending_claims.find(rec->publicClaimId())) != pending_claims.end()){
+			dprintf( D_ALWAYS, "E10\n" );
 			pending_claims.erase(cit);
 		}
+		dprintf( D_ALWAYS, "E11\n" );
 		delete rec;
 		return true;
 	}
 		// First, delete it from our table hashed on ClaimId. 
 	if( all_matches_by_id->lookup(id, rec) < 0 ) {
+		dprintf( D_ALWAYS, "E12\n" );
 		ClaimIdParser cid(id);
-		dprintf( D_FULLDEBUG, "mrec for \"%s\" not found -- " 
+		dprintf( D_ALWAYS, "E13\n" );
+		dprintf( D_ALWAYS, "mrec for \"%s\" not found -- " 
 				 "match not deleted (but perhaps it was deleted previously)\n", cid.publicClaimId() );
 		return false;
 	}
 
+	dprintf( D_ALWAYS, "E14\n" );
 	ASSERT( rec->is_dedicated );
+	dprintf( D_ALWAYS, "E15\n" );
 
 	if (all_matches_by_id->remove(id) < 0) {
+		dprintf( D_ALWAYS, "E16\n" );
 		dprintf(D_ALWAYS, "DelMrec::all_matches_by_id->remove < 0\n");	
 	}
+		
+	dprintf( D_ALWAYS, "E17\n" );
 		// Now that we have the mrec again, we have to see if this
 		// match record is stored in our table of allocation nodes,
 		// and if so, we need to remove it from there, so we don't
@@ -3543,11 +3619,13 @@ DedicatedScheduler::DelMrec( char const* id )
 		// cluster from the mrec.
 	AllocationNode* alloc;
 	if( allocations->lookup(rec->cluster, alloc) < 0 ) {
+		dprintf( D_ALWAYS, "E18\n" );
 			// Cool, this match wasn't allocated to anyone, so we
 			// don't have to worry about it.  If the match isn't
 			// allocated to anyone, the cluster better be -1.
 		ASSERT( rec->cluster == -1 );
 	} else {
+		dprintf( D_ALWAYS, "E19\n" );
 			// Bummer, this match was allocated to one of our jobs.
 			// We don't have to worry about shutting it down, since
 			// the shadow takes care of that.  However, we need to
@@ -3559,6 +3637,7 @@ DedicatedScheduler::DelMrec( char const* id )
 		for( int proc_index = 0; proc_index < alloc->num_procs; proc_index++) {
 			MRecArray* rec_array = (*alloc->matches)[proc_index];
 			int i, last = rec_array->getlast();
+			dprintf( D_ALWAYS, "E20\n" );
 
 			for( i=0; i<= last; i++ ) {
 					// In case you were wondering, this works just fine if
@@ -3583,6 +3662,8 @@ DedicatedScheduler::DelMrec( char const* id )
 				}
 			}
 		}
+
+		dprintf( D_ALWAYS, "E21\n" );
 		if( ! found_it ) {
 				// This sucks.  We think this match record belongs to
 				// a cluster that we have an allocation node for, but
@@ -3597,9 +3678,13 @@ DedicatedScheduler::DelMrec( char const* id )
 		}
 	}
 
+	dprintf( D_ALWAYS, "E22\n" );
+
 		// Now, we can delete it from the main table hashed on name.
 	rec->my_match_ad->LookupString( ATTR_NAME, name_buf, sizeof(name_buf) );
 	all_matches->remove(name_buf);
+
+	dprintf( D_ALWAYS, "E23\n" );
 
 		// If this match record is associated with a shadow record,
 		// clear out the match record from that shadow record to avoid
@@ -3608,10 +3693,12 @@ DedicatedScheduler::DelMrec( char const* id )
 		rec->shadowRec->match = NULL;
 	}
 
+	dprintf( D_ALWAYS, "E24\n" );
+
 		// Finally, delete the match rec itself.
 	delete rec;
 
-	dprintf( D_FULLDEBUG, "Deleted match rec for %s\n", name_buf );
+	dprintf( D_ALWAYS, "Deleted match rec for %s\n", name_buf );
 
 	return true;
 }
