@@ -3146,7 +3146,7 @@ DedicatedScheduler::createAllocations( CAList *idle_candidates,
 	alloc->display();
 
 	int insertResult = allocations->insert( cluster, alloc );
-	// ASSERT(insertResult == 0);
+	ASSERT(insertResult == 0);
 	dprintf( D_ALWAYS, "DBG: allocations->insert to hash: %d\n", insertResult );
 }
 
