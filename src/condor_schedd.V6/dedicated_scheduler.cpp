@@ -405,11 +405,11 @@ ResList::satisfyJobs( CAList *jobs,
 			candidate->LookupString(ATTR_NAME, slotname);
 
 			// Do not assign new jobs to the broken executor.
-			pos = slotname.find("@") + 1;   
-			executorHostname = slotname.substr(pos);
-			if (isExecuterBroken(executorHostname)) {
-				continue;
-			}
+			// pos = slotname.find("@") + 1;   
+			// executorHostname = slotname.substr(pos);
+			// if (isExecuterBroken(executorHostname)) {
+			// 	continue;
+			// }
 
 			if (satisfies(job, candidate)) {
                 // There's a match
@@ -997,15 +997,15 @@ DedicatedScheduler::releaseClaim( match_rec* m_rec )
 	DCStartd d( m_rec->peer );
 
 	// Just skip useless action if we know that the executor is already broken.
-	if (isExecuterBroken(m_rec)) {
-		dprintf( D_ALWAYS, "DBG: Skip releasing claim on broken executer %s\n", m_rec->executorHostname().c_str()); 
-		return false;
-	}
+	// if (isExecuterBroken(m_rec)) {
+	// 	dprintf( D_ALWAYS, "DBG: Skip releasing claim on broken executer %s\n", m_rec->executorHostname().c_str()); 
+	// 	return false;
+	// }
 
     rsock.timeout(2);
 	if (!rsock.connect( m_rec->peer)) {
 		dprintf( D_ALWAYS, "ERROR in releaseClaim(): cannot connect to startd %s\n", m_rec->peer); 
-		markExecuterBroken(m_rec);
+		// markExecuterBroken(m_rec);
 		return false;
 	} else {
 		// markExecuterUnbroken(m_rec);
@@ -1043,20 +1043,18 @@ DedicatedScheduler::deactivateClaim( match_rec* m_rec )
 	}
 
 	// Just skip useless action if we know that the executor is already broken.
-	if (isExecuterBroken(m_rec)) {
-		dprintf( D_ALWAYS, "DBG: Skip deactivating claim on broken executer %s\n", m_rec->executorHostname().c_str()); 
-		return false;
-	}
+	// if (isExecuterBroken(m_rec)) {
+	// 	dprintf( D_ALWAYS, "DBG: Skip deactivating claim on broken executer %s\n", m_rec->executorHostname().c_str()); 
+	// 	return false;
+	// }
 
     sock.timeout( STARTD_CONTACT_TIMEOUT );
 	if( !sock.connect(m_rec->peer, 0) ) {
         dprintf( D_ALWAYS, "ERROR in deactivateClaim(): "
 				 "Couldn't connect to startd.\n" );
-		markExecuterBroken(m_rec);
+		// markExecuterBroken(m_rec);
 		return false;
-	} else {
-		// markExecuterUnbroken(m_rec);
-	}
+	} 
 
 	DCStartd d( m_rec->peer );
 	if (!d.startCommand(DEACTIVATE_CLAIM, &sock)) {
