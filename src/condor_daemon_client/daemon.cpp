@@ -120,7 +120,7 @@ Daemon::Daemon( daemon_t tType, const char* tName, const char* tPool )
 
 	dprintf( D_ALWAYS, "D3" ); 
 
-	dprintf( D_HOSTNAME, "New Daemon obj (%s) name: \"%s\", pool: "  
+	dprintf( D_ALWAYS, "New Daemon obj (%s) name: \"%s\", pool: "  
 			 "\"%s\", addr: \"%s\"\n", daemonString(_type), 
 			 _name ? _name : "NULL", _pool ? _pool : "NULL",
 			 _addr ? _addr : "NULL" );
