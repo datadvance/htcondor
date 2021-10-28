@@ -14393,7 +14393,7 @@ Scheduler::AddMrec(char const* id, char const* peer, PROC_ID* jobId, const Class
 		return NULL;
 	}
 
-
+	dprintf(D_ALWAYS, "DBG: match_rec call #3: %ld", strlen(peer));
 	rec = new match_rec(id, peer, jobId, my_match_ad, user, pool, false);
 	if(!rec)
 	{

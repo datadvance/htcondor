@@ -182,6 +182,10 @@ void DedicatedScheduler::markExecuterUnbroken(match_rec* mrec) {
  * Return true if executor hostname listed as broken.
  */
 bool isExecuterBroken(match_rec* mrec) {
+	if (mrec->executorHostname() == NULL) {
+		return false;
+	}
+
 	if (std::find(_pbh.begin(), _pbh.end(), mrec->executorHostname()) != _pbh.end()) {		
 		return true;
 	} 
@@ -1007,11 +1011,11 @@ DedicatedScheduler::releaseClaim( match_rec* m_rec )
 
 	dprintf( D_ALWAYS, "#3\n" ); 
 
-	// Just skip useless action if we know that the executor is already broken.
-	if (isExecuterBroken(m_rec)) {
-		dprintf( D_ALWAYS, "DBG: Skip releasing claim on broken executer %s\n", m_rec->executorHostname().c_str()); 
-		return false;
-	}
+	// // Just skip useless action if we know that the executor is already broken.
+	// if (isExecuterBroken(m_rec)) {
+	// 	dprintf( D_ALWAYS, "DBG: Skip releasing claim on broken executer %s\n", m_rec->executorHostname().c_str()); 
+	// 	return false;
+	// }
 
 	dprintf( D_ALWAYS, "#4\n" ); 
 
@@ -1019,7 +1023,7 @@ DedicatedScheduler::releaseClaim( match_rec* m_rec )
 	if (!rsock.connect( m_rec->peer)) {
 		dprintf( D_ALWAYS, "ERROR in releaseClaim(): cannot connect to startd %s\n", m_rec->peer); 
 		dprintf( D_ALWAYS, "#5\n" ); 
-		markExecuterBroken(m_rec);
+		// markExecuterBroken(m_rec);
 		return false;
 	} else {
 		dprintf( D_ALWAYS, "#6\n" ); 
@@ -1071,11 +1075,11 @@ DedicatedScheduler::deactivateClaim( match_rec* m_rec )
 
 	dprintf( D_ALWAYS, "DC #1\n");
 
-	// Just skip useless action if we know that the executor is already broken.
-	if (isExecuterBroken(m_rec)) {
-		dprintf( D_ALWAYS, "DBG: Skip deactivating claim on broken executer %s\n", m_rec->executorHostname().c_str()); 
-		return false;
-	}
+	// // Just skip useless action if we know that the executor is already broken.
+	// if (isExecuterBroken(m_rec)) {
+	// 	dprintf( D_ALWAYS, "DBG: Skip deactivating claim on broken executer %s\n", m_rec->executorHostname().c_str()); 
+	// 	return false;
+	// }
 
 	dprintf( D_ALWAYS, "DC #2: %s\n", m_rec->peer);
 
@@ -3490,6 +3494,7 @@ DedicatedScheduler::AddMrec(
 		// Note, we want to claim this startd as the
 		// "DedicatedScheduler" owner, which is why we call
 		// owner() here...
+	dprintf(D_ALWAYS, "DBG: match_rec call #1: %ld", strlen(startd_addr));
 	match_rec *mrec = new match_rec( claim_id, startd_addr, &empty_job_id,
 									 match_ad,owner(),remote_pool,true);
 
@@ -4465,8 +4470,11 @@ DedicatedScheduler::checkReconnectQueue( void ) {
 				continue;
 			}
 
+			dprintf(D_ALWAYS, "DBG: match_rec call #2: %ld", strlen(sinful));
+
 			dprintf(D_ALWAYS, "Dedicated Scheduler:: reconnect target address is %s; claim is %s\n", sinful, claim);
 
+			
 			match_rec *mrec = 
 				new match_rec(claim, sinful, &id,
 						  machineAd, owner(), NULL, true);

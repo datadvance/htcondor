@@ -57,6 +57,16 @@ class ClaimIdParser {
 		// Parsing:
 		// <10.42.0.141:36783?addrs=10.42.0.141-36783&alias=pseven-htcondorexecute-deploy-656f64f87b-txgn8.pseven-htcondor&noUDP&sock=startd_86_e1a3>#1635018679#101#...
 		// to get the "alias" value.
+		if (m_claim_id.length() < 32) {
+			dprintf( D_ALWAYS, "DBG: executorHostname is UNKNOWN!!! Value: %s", m_claim_id.c_str());
+			return NULL;
+		}
+
+		if (m_claim_id.find("alias=") == std::string::npos) {
+			dprintf( D_ALWAYS, "DBG: alias= not found in m_claim_id, value %s", m_claim_id.c_str());
+			return NULL;
+		}
+		
         std::size_t start = m_claim_id.find("alias=") + 6;
         std::string rest = m_claim_id.substr(start);
         std::size_t end = rest.find("&");
