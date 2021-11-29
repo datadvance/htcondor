@@ -505,7 +505,8 @@ ProcFamilyServer::wait_loop()
 				break;
 				
 			case PROC_FAMILY_GET_USAGE:
-				dprintf(D_ALWAYS, "PROC_FAMILY_GET_USAGE\n");
+				// Switched to fulldebug because of massive spam in logs.
+				dprintf(D_FULLDEBUG, "PROC_FAMILY_GET_USAGE\n");
 				get_usage();
 				break;
 

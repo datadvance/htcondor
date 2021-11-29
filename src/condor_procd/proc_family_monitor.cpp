@@ -505,8 +505,8 @@ ProcFamilyMonitor::get_family_usage(pid_t pid, ProcFamilyUsage* usage)
 	}
 
 	// get usage from the requested family and all subfamilies
-	//
-	dprintf(D_ALWAYS,
+	// Switched to fulldebug because of massive spam in logs.
+	dprintf(D_FULLDEBUG,
 	        "gathering usage data for family with root pid %u\n",
 	        pid);
 	ASSERT(usage != NULL);

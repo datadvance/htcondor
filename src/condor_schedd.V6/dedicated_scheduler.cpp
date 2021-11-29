@@ -50,6 +50,7 @@
 #include "condor_qmgr.h"
 #include "schedd_negotiate.h"
 
+#include <set>
 #include <vector>
 
 extern Scheduler scheduler;
@@ -847,6 +848,37 @@ DedicatedScheduler::callHandleDedicatedJobs( void )
 }
 
 
+bool
+DedicatedScheduler::updateStartdAvailability(const std::string& peer, const bool available) {
+	auto fit = evicted_startd.find(peer);
+	if (available) {
+		if (fit != evicted_startd.end()) {
+			evicted_startd.erase(fit);
+		}
+		return false;
+	}
+	const int timeout = param_integer("DEDICATED_SCHEDULER_STARTD_EVICTION_TIMEOUT");
+	if (timeout == 0) {
+		return false;
+	}
+	const time_t now = time(0);
+	if (fit == evicted_startd.end()) {
+		evicted_startd[peer] = std::make_pair(now, now);
+		return false;
+	}
+	fit->second.second = now;
+	const time_t unavailable = now - fit->second.first;
+	if (unavailable > timeout) {
+		dprintf(D_ALWAYS, 
+			"Startd not responding for %d sec, timeout is %d: %s\n", 
+			(int)unavailable, timeout, peer.c_str()
+		);
+		return true;
+	}
+    return false;
+}
+
+
 #ifdef WIN32
 #pragma warning(suppress: 6262) // warning: function uses about 64k of stack
 #endif
@@ -864,15 +896,18 @@ DedicatedScheduler::releaseClaim( match_rec* m_rec )
 	DCStartd d( m_rec->peer );
 
     rsock.timeout(2);
-	if (!rsock.connect( m_rec->peer)) {
+	if (rsock.connect( m_rec->peer)) {
+        updateStartdAvailability(m_rec->peer, true);
+		rsock.encode();
+		d.startCommand( RELEASE_CLAIM, &rsock);
+		rsock.put( m_rec->claimId() );
+		rsock.end_of_message();
+	} else {
         dprintf( D_ALWAYS, "ERROR in releaseClaim(): canot connect to startd %s\n", m_rec->peer); 
-		return false;
+		if (!updateStartdAvailability(m_rec->peer, false)) {
+			return false;
+		}
 	}
-
-	rsock.encode();
-    d.startCommand( RELEASE_CLAIM, &rsock);
-	rsock.put( m_rec->claimId() );
-	rsock.end_of_message();
 
 	if( IsFulldebug(D_FULLDEBUG) ) { 
 		char name_buf[256];
@@ -902,38 +937,43 @@ DedicatedScheduler::deactivateClaim( match_rec* m_rec )
 
     sock.timeout( STARTD_CONTACT_TIMEOUT );
 
-	if( !sock.connect(m_rec->peer, 0) ) {
+	if(sock.connect(m_rec->peer, 0) ) {
+        updateStartdAvailability(m_rec->peer, true);
+		DCStartd d( m_rec->peer );
+		if (!d.startCommand(DEACTIVATE_CLAIM, &sock)) {
+				dprintf( D_ALWAYS, "ERROR in deactivateClaim(): "
+					"Can't start command to startd" );
+			return false;
+		}
+
+		sock.encode();
+
+		if( !sock.put(m_rec->claimId()) ) {
+				dprintf( D_ALWAYS, "ERROR in deactivateClaim(): "
+					"Can't code ClaimId (%s)\n", m_rec->publicClaimId() );
+			return false;
+		}
+		if( !sock.end_of_message() ) {
+				dprintf( D_ALWAYS, "ERROR in deactivateClaim(): "
+					"Can't send EOM\n" );
+			return false;
+		}
+		
+		// Wait for response from the startd to avoid misleading errors.
+		sock.decode();
+		// Ignore decode/getClassAd errors - Failure to receive the response classad
+		// should "not be critical in any way" (see comment in startd/command.cpp 
+		//  - deactivate_claim()).
+		getClassAd(&sock, responseAd);
+	} else {
         dprintf( D_ALWAYS, "ERROR in deactivateClaim(): "
 				 "Couldn't connect to startd.\n" );
-		return false;
+		if (updateStartdAvailability(m_rec->peer, false)) {
+            DelMrec( m_rec );
+			return true;
+		}
+        return false;
 	}
-
-	DCStartd d( m_rec->peer );
-	if (!d.startCommand(DEACTIVATE_CLAIM, &sock)) {
-        	dprintf( D_ALWAYS, "ERROR in deactivateClaim(): "
-				 "Can't start command to startd" );
-		return false;
-	}
-
-	sock.encode();
-
-	if( !sock.put(m_rec->claimId()) ) {
-        	dprintf( D_ALWAYS, "ERROR in deactivateClaim(): "
-				 "Can't code ClaimId (%s)\n", m_rec->publicClaimId() );
-		return false;
-	}
-	if( !sock.end_of_message() ) {
-        	dprintf( D_ALWAYS, "ERROR in deactivateClaim(): "
-				 "Can't send EOM\n" );
-		return false;
-	}
-	
-	// Wait for response from the startd to avoid misleading errors.
-	sock.decode();
-	// Ignore decode/getClassAd errors - Failure to receive the response classad
-	// should "not be critical in any way" (see comment in startd/command.cpp 
-	//  - deactivate_claim()).
-	getClassAd(&sock, responseAd);
 
 		// Clear out this match rec, since it's no longer allocated to
 		// a given MPI job.
@@ -1597,6 +1637,8 @@ DedicatedScheduler::getDedicatedResourceInfo( void )
     constraint.formatstr("DedicatedScheduler == \"%s\"", name());
 	query.addORConstraint( constraint.Value() );
 
+	std::set<std::string> available_startd;
+
 		// This should fill in resources with all the classads we care
 		// about
 	CollectorList *collectors = daemonCore->getCollectorList();
@@ -1610,9 +1652,23 @@ DedicatedScheduler::getDedicatedResourceInfo( void )
 			int cpus = 0;
 			m->LookupInteger(ATTR_CPUS, cpus);
 			total_cores += cpus;
+
+			Daemon startd(m, DT_STARTD, NULL);
+			if(const char* addr = startd.addr()) {
+				available_startd.insert(addr);
+			}			
 		}
 		resources->Rewind();
 
+		// Cleanup monitored startd list from those removed from resources.
+		for (auto it = evicted_startd.cbegin(); it != evicted_startd.cend();) {
+			if (available_startd.find(it->first) == available_startd.end()) {
+				evicted_startd.erase(it++);
+			} else {
+				++it;
+			}
+		}
+		
 		return true;
 	}
 
@@ -1767,7 +1823,9 @@ DedicatedScheduler::sortResources( void )
 		}
 
 		if( mrec->status == M_CLAIMED ) {
-			idle_resources->Append( res );
+            if (evicted_startd.find(mrec->peer) == evicted_startd.end()) {
+                idle_resources->Append( res );
+            }
 			continue;
 		}
 
@@ -3751,6 +3809,8 @@ DedicatedScheduler::checkSanity( void )
 	int tmp;
 	match_rec* mrec;
 
+	std::set<std::string> matched_peers;
+
 	all_matches->startIterations();
     while( all_matches->iterate( mrec ) ) {
 		tmp = getUnusedTime( mrec );
@@ -3766,6 +3826,32 @@ DedicatedScheduler::checkSanity( void )
 		}
 		if( tmp > max_unused_time ) {
 			max_unused_time = tmp;
+		}
+		matched_peers.insert(mrec->peer);
+	}
+
+	// Check if some of evicted statd become available.
+	const double timeout = param_integer("DEDICATED_SCHEDULER_STARTD_EVICTION_TIMEOUT");
+	if (timeout != 0) {
+		for (auto it = matched_peers.cbegin(); it != matched_peers.cend(); ++it) {
+			auto fit = evicted_startd.find(*it);
+			const time_t now = time(NULL);
+			// Startd available or checked not long ago, skip for now.
+			if (fit == evicted_startd.end() || now - fit->second.second <= timeout / 4.0) {
+				continue;
+			}
+			// Startd most propbably dead, checked more than once. And still not available.
+			if (fit->second.first != fit->second.second && now - fit->second.first > timeout) {
+				continue;
+			}
+			ReliSock rsock;
+    		rsock.timeout(2);
+			if (rsock.connect(it->c_str())) {
+				evicted_startd.erase(fit);
+				rsock.close();
+			} else {
+				fit->second.second = now;
+			}
 		}
 	}
 
