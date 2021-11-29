@@ -7797,6 +7797,12 @@ Scheduler::claimedStartd( DCMsgCallback *cb ) {
 		// request operation is finished.
 	match->claim_requester = NULL;
 
+	// Tell scheduler if startd is available.
+	if( match->is_dedicated ) {
+		const bool startd_available = msg->deliveryStatus() != DCMsg::DELIVERY_FAILED;
+		dedicated_scheduler.updateStartdAvailability(match->peer, startd_available);
+	}
+
 	if( !msg->claimed_startd_success() ) {
 		// Re-enable the job for matching in the PrioRec array
 		for (int i = 0; i < N_PrioRecs; i++) {
@@ -7809,7 +7815,13 @@ Scheduler::claimedStartd( DCMsgCallback *cb ) {
 		return;
 	}
 
-	match->setStatus( M_CLAIMED );
+	// Sometimes schedd thinks that it should claim already used slot.
+	// It leads to double free error and coredump. Restart from such
+	// situation is also impossible. Now we prevent it via this kludge.
+	// The source of this error is still unknown.
+	if (match->status != M_ACTIVE) {
+		match->setStatus( M_CLAIMED );
+	}
 
 	// now that we've completed authentication (if enabled),
 	// authorize this startd for READ operations
