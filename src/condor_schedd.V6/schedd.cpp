@@ -4121,12 +4121,11 @@ callAboutToSpawnJobHandler( int cluster, int proc, shadow_rec* srec )
 bool
 Scheduler::spawnJobHandler( int cluster, int proc, shadow_rec* srec )
 {
+	// `shadow_rec` object may be deleted already if we processing non first
+	// job in parallel universe and failed to start shadow for the first job.
+	// This is why we can not get universe from `shadow_rec`.
 	int universe;
-	if( srec ) {
-		universe = srec->universe;
-	} else {
-		GetAttributeInt( cluster, proc, ATTR_JOB_UNIVERSE, &universe );
-	}
+	GetAttributeInt( cluster, proc, ATTR_JOB_UNIVERSE, &universe );
 	PROC_ID job_id;
 	job_id.cluster = cluster;
 	job_id.proc = proc;

@@ -2347,7 +2347,7 @@ DedicatedScheduler::computeSchedule( void )
 		if (give_up) {
 			continue;
 		}
-
+		
 			// These are the potential resources for the job
 		idle_candidates = new CandidateList;
 
@@ -2983,7 +2983,7 @@ DedicatedScheduler::createAllocations( CAList *idle_candidates,
 		(*matches)[node] = mrec;
 		node++;
 	}
-	
+
 	ASSERT( allocations->insert( cluster, alloc ) == 0 );
 
 		// Show world what we did
@@ -3321,6 +3321,26 @@ DedicatedScheduler::AddMrec(
 	char const *remote_pool
 )
 {
+	match_rec *existing_mrec;
+	// Already have this match
+	if( all_matches->lookup(slot_name, existing_mrec) == 0) {
+		AllocationNode* alloc;
+		if( allocations->lookup(existing_mrec->cluster, alloc) >= 0 ) {
+			if (alloc->matches && alloc->matches->length() > existing_mrec->proc) {
+				MRecArray* rec_array = (*alloc->matches)[existing_mrec->proc];
+				int idx, last = rec_array->getlast();
+				for( idx = 0; idx <= last; idx++ ) {
+					if( (*rec_array)[idx] == existing_mrec ) {
+						dprintf(D_ALWAYS, "DedicatedScheduler: negotiator sent match for %s, but we've already got it and run the job on it, keep old one\n", slot_name);						
+						return existing_mrec;
+					}
+				}
+			}
+		}
+		dprintf(D_ALWAYS, "DedicatedScheduler: negotiator sent match for %s, but we've already got it, deleting old one\n", slot_name);
+		DelMrec(existing_mrec);
+	}
+
 		// The dedicated scheduler expects the job id to not be set
 		// until this match is associated with a job.
 	PROC_ID empty_job_id;
@@ -3333,13 +3353,6 @@ DedicatedScheduler::AddMrec(
 		// owner() here...
 	match_rec *mrec = new match_rec( claim_id, startd_addr, &empty_job_id,
 									 match_ad,owner(),remote_pool,true);
-
-	match_rec *existing_mrec;
-	if( all_matches->lookup(slot_name, existing_mrec) == 0) {
-			// Already have this match
-		dprintf(D_ALWAYS, "DedicatedScheduler: negotiator sent match for %s, but we've already got it, deleting old one\n", slot_name);
-		DelMrec(existing_mrec);
-	}
 
 	// Next, insert this match_rec into our hashtables
     ClassAd* job = GetJobAd(job_id.cluster, job_id.proc);
@@ -4188,8 +4201,8 @@ DedicatedScheduler::checkReconnectQueue( void ) {
 			if (machinesToAllocate.Number() > 0) {
 				removeFromList(&jobsToReconnectLater, &jobsToAllocate);
 
-				createAllocations(&machinesToAllocate, &jobsToAllocate, 
-							  last_id.cluster, nprocs, true);
+				createAllocations(&machinesToAllocate, &jobsToAllocate,
+								  last_id.cluster, nprocs, true);
 			}
 		
 			nprocs = 0;
@@ -4331,8 +4344,8 @@ DedicatedScheduler::checkReconnectQueue( void ) {
 		removeFromList(&jobsToReconnectLater, &jobsToAllocate);
 
 		createAllocations(&machinesToAllocate, &jobsToAllocate, 
-					  id.cluster, nprocs, true);
-		
+						  id.cluster, nprocs, true);
+
 	}
 	spawnJobs();
 
