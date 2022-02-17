@@ -511,7 +511,7 @@ class DedicatedScheduler : public Service {
 	// determine number of seconds when startd may be completely forgotten.
 	// If parameter set to 0 monitoring is disabled.
 public:
-	// Tell scheduler if startd is available. Returns `true` when startd is 
+	// Tell scheduler if startd is available. Returns `false` when startd is 
 	// unavailable more than DEDICATED_SCHEDULER_STARTD_EVICTION_TIMEOUT seconds.
 	// In this case it is good idea to forget about existings claims on this startd.
 	bool updateStartdAvailability(const std::string& peer, const bool available);

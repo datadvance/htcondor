@@ -2056,6 +2056,7 @@ _sPrintAd( MyString &output, const classad::ClassAd &ad, bool exclude_private, S
 	}
 
 	std::vector< std::string> keys;
+	keys.reserve(attributes.size());
 	for( auto i = attributes.begin(); i != attributes.end(); ++i ) {
 		keys.push_back( i->first );
 	}

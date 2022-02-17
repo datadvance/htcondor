@@ -851,31 +851,31 @@ DedicatedScheduler::callHandleDedicatedJobs( void )
 bool
 DedicatedScheduler::updateStartdAvailability(const std::string& peer, const bool available) {
 	auto fit = evicted_startd.find(peer);
-	if (available) {
-		if (fit != evicted_startd.end()) {
-			evicted_startd.erase(fit);
+	if ( available ) {
+		if ( fit != evicted_startd.end() ) {
+			evicted_startd.erase( fit );
 		}
-		return false;
+		return true;
 	}
-	const int timeout = param_integer("DEDICATED_SCHEDULER_STARTD_EVICTION_TIMEOUT");
-	if (timeout == 0) {
-		return false;
+	const int timeout = param_integer("DA__P7__SCHEDD_STARTD_EVICTION_TIMEOUT");
+	if ( timeout == 0 ) {
+		return true;
 	}
 	const time_t now = time(0);
-	if (fit == evicted_startd.end()) {
-		evicted_startd[peer] = std::make_pair(now, now);
-		return false;
+	if ( fit == evicted_startd.end() ) {
+		evicted_startd[peer] = std::make_pair( now, now );
+		return true;
 	}
 	fit->second.second = now;
 	const time_t unavailable = now - fit->second.first;
-	if (unavailable > timeout) {
-		dprintf(D_ALWAYS, 
-			"Startd not responding for %d sec, timeout is %d: %s\n", 
+	if ( unavailable > timeout ) {
+		dprintf( D_ALWAYS,
+			"Startd not responding for %d sec, timeout is %d: %s\n",
 			(int)unavailable, timeout, peer.c_str()
 		);
-		return true;
+		return false;
 	}
-    return false;
+    return true;
 }
 
 
@@ -895,16 +895,16 @@ DedicatedScheduler::releaseClaim( match_rec* m_rec )
 
 	DCStartd d( m_rec->peer );
 
-    rsock.timeout(2);
-	if (rsock.connect( m_rec->peer)) {
-        updateStartdAvailability(m_rec->peer, true);
+    rsock.timeout( 2 );
+	if ( rsock.connect( m_rec->peer ) ) {
+        updateStartdAvailability( m_rec->peer, true );
 		rsock.encode();
-		d.startCommand( RELEASE_CLAIM, &rsock);
+		d.startCommand( RELEASE_CLAIM, &rsock );
 		rsock.put( m_rec->claimId() );
 		rsock.end_of_message();
 	} else {
         dprintf( D_ALWAYS, "ERROR in releaseClaim(): canot connect to startd %s\n", m_rec->peer); 
-		if (!updateStartdAvailability(m_rec->peer, false)) {
+		if ( updateStartdAvailability( m_rec->peer, false) ) {
 			return false;
 		}
 	}
@@ -937,10 +937,10 @@ DedicatedScheduler::deactivateClaim( match_rec* m_rec )
 
     sock.timeout( STARTD_CONTACT_TIMEOUT );
 
-	if(sock.connect(m_rec->peer, 0) ) {
-        updateStartdAvailability(m_rec->peer, true);
+	if( sock.connect( m_rec->peer, 0 ) ) {
+        updateStartdAvailability( m_rec->peer, true );
 		DCStartd d( m_rec->peer );
-		if (!d.startCommand(DEACTIVATE_CLAIM, &sock)) {
+		if ( !d.startCommand( DEACTIVATE_CLAIM, &sock) ) {
 				dprintf( D_ALWAYS, "ERROR in deactivateClaim(): "
 					"Can't start command to startd" );
 			return false;
@@ -948,7 +948,7 @@ DedicatedScheduler::deactivateClaim( match_rec* m_rec )
 
 		sock.encode();
 
-		if( !sock.put(m_rec->claimId()) ) {
+		if( !sock.put( m_rec->claimId() ) ) {
 				dprintf( D_ALWAYS, "ERROR in deactivateClaim(): "
 					"Can't code ClaimId (%s)\n", m_rec->publicClaimId() );
 			return false;
@@ -958,17 +958,17 @@ DedicatedScheduler::deactivateClaim( match_rec* m_rec )
 					"Can't send EOM\n" );
 			return false;
 		}
-		
+
 		// Wait for response from the startd to avoid misleading errors.
 		sock.decode();
-		// Ignore decode/getClassAd errors - Failure to receive the response classad
-		// should "not be critical in any way" (see comment in startd/command.cpp 
-		//  - deactivate_claim()).
-		getClassAd(&sock, responseAd);
+		// Ignore decode/getClassAd errors - Failure to receive
+		//  the response classad should "not be critical in any way"
+		// (see comment in startd/command.cpp - deactivate_claim()).
+		getClassAd( &sock, responseAd );
 	} else {
         dprintf( D_ALWAYS, "ERROR in deactivateClaim(): "
 				 "Couldn't connect to startd.\n" );
-		if (updateStartdAvailability(m_rec->peer, false)) {
+		if ( !updateStartdAvailability( m_rec->peer, false ) ) {
             DelMrec( m_rec );
 			return true;
 		}
@@ -1654,21 +1654,21 @@ DedicatedScheduler::getDedicatedResourceInfo( void )
 			total_cores += cpus;
 
 			Daemon startd(m, DT_STARTD, NULL);
-			if(const char* addr = startd.addr()) {
-				available_startd.insert(addr);
-			}			
+			if ( const char* addr = startd.addr() ) {
+				available_startd.insert( addr );
+			}
 		}
 		resources->Rewind();
 
 		// Cleanup monitored startd list from those removed from resources.
-		for (auto it = evicted_startd.cbegin(); it != evicted_startd.cend();) {
-			if (available_startd.find(it->first) == available_startd.end()) {
-				evicted_startd.erase(it++);
+		for ( auto it = evicted_startd.cbegin(); it != evicted_startd.cend(); ) {
+			if ( available_startd.find( it->first ) == available_startd.end() ) {
+				evicted_startd.erase( it++ );
 			} else {
 				++it;
 			}
 		}
-		
+
 		return true;
 	}
 
@@ -1823,7 +1823,7 @@ DedicatedScheduler::sortResources( void )
 		}
 
 		if( mrec->status == M_CLAIMED ) {
-            if (evicted_startd.find(mrec->peer) == evicted_startd.end()) {
+            if ( evicted_startd.find( mrec->peer ) == evicted_startd.end() ) {
                 idle_resources->Append( res );
             }
 			continue;
@@ -2983,7 +2983,7 @@ DedicatedScheduler::createAllocations( CAList *idle_candidates,
 		(*matches)[node] = mrec;
 		node++;
 	}
-	
+
 	ASSERT( allocations->insert( cluster, alloc ) == 0 );
 
 		// Show world what we did
@@ -3321,6 +3321,27 @@ DedicatedScheduler::AddMrec(
 	char const *remote_pool
 )
 {
+		// Already have this match
+	match_rec *existing_mrec;
+	if( all_matches->lookup(slot_name, existing_mrec) == 0) {
+		AllocationNode* alloc;
+		const bool skip_updates = param_boolean("DA__P7__SCHEDD_SKIP_ACTIVE_SLOT_UPDATE", false);
+		if( skip_updates && allocations->lookup(existing_mrec->cluster, alloc) == 0 ) {
+			if ( alloc->matches && alloc->matches->length() > existing_mrec->proc ) {
+				MRecArray* rec_array = (*alloc->matches)[existing_mrec->proc];
+				int idx, last = rec_array->getlast();
+				for( idx = 0; idx <= last; idx++ ) {
+					if( (*rec_array)[idx] == existing_mrec ) {
+						dprintf(D_ALWAYS, "DedicatedScheduler: negotiator sent match for %s, but we've already running it, keeping old one\n", slot_name);
+						return existing_mrec;
+					}
+				}
+			}
+		}
+		DelMrec(existing_mrec);
+		dprintf(D_ALWAYS, "DedicatedScheduler: negotiator sent match for %s, but we've already got it, deleting old one\n", slot_name);
+	}
+
 		// The dedicated scheduler expects the job id to not be set
 		// until this match is associated with a job.
 	PROC_ID empty_job_id;
@@ -3333,13 +3354,6 @@ DedicatedScheduler::AddMrec(
 		// owner() here...
 	match_rec *mrec = new match_rec( claim_id, startd_addr, &empty_job_id,
 									 match_ad,owner(),remote_pool,true);
-
-	match_rec *existing_mrec;
-	if( all_matches->lookup(slot_name, existing_mrec) == 0) {
-			// Already have this match
-		dprintf(D_ALWAYS, "DedicatedScheduler: negotiator sent match for %s, but we've already got it, deleting old one\n", slot_name);
-		DelMrec(existing_mrec);
-	}
 
 	// Next, insert this match_rec into our hashtables
     ClassAd* job = GetJobAd(job_id.cluster, job_id.proc);

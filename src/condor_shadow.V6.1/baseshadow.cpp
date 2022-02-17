@@ -36,6 +36,7 @@
 #include "limit_directory_access.h"
 #include "spooled_job_files.h"
 #include <math.h>
+#include <dirent.h>
 
 // these are declared static in baseshadow.h; allocate space here
 BaseShadow* BaseShadow::myshadow_ptr = NULL;
@@ -309,6 +310,19 @@ int BaseShadow::cdToIwd() {
 	if (m_RunAsNobody)
 		p = set_root_priv();
 #endif
+
+	if ( param_boolean( "DA__P7__SHADOW_SYNC_IWD_WITH_SCANDIR", false ) && !iwd.empty() ) {
+		std::string parent = iwd;
+		parent += parent[parent.size() - 1] == '/' ? ".." : "/..";
+		if ( DIR* parent_dir = opendir( parent.c_str() ) ) {
+			while ( readdir( parent_dir ) );
+			closedir( parent_dir );
+		}
+		if ( DIR* iwd_dir = opendir( iwd.c_str() ) ) {
+			while ( readdir( iwd_dir ) );
+			closedir( iwd_dir );
+		}
+	}
 	
 	if (chdir(iwd.c_str()) < 0) {
 		int chdir_errno = errno;
