@@ -3490,13 +3490,9 @@ int DestroyProc(int cluster_id, int proc_id)
 
  
 	// Remove checkpoint files
-	if ( !Q_SOCK ) {
-		//if socket is dead, have cleanup lookup ad owner
-		cleanup_ckpt_files(cluster_id,proc_id,NULL );
-	}
-	else {
-		cleanup_ckpt_files(cluster_id,proc_id,Q_SOCK->getOwner() );
-	}
+	// if socket is dead, have cleanup lookup ad owner
+	const char* const owner = Q_SOCK ? Q_SOCK->getOwner() : NULL;
+	cleanup_ckpt_files( cluster_id, proc_id, owner );
 
 	// Remove the job from its autocluster
 	scheduler.autocluster.removeFromAutocluster(*ad);
@@ -3577,6 +3573,12 @@ int DestroyProc(int cluster_id, int proc_id)
 			if (!JobQueue->Lookup(otherKey, otherAd)) {
 				stillLooking = false;
 			} else {
+				// Remove checkpoint files for the other procs.
+				// Without this schedd does not delete checkpoints directory
+				// when job with more then two procs is finished.
+				if ( param_boolean( "DA__P7__SCHEDD_CLEANUP_PARALLEL_JOB_PROC_CHECKPOINTS", false ) ) {
+					cleanup_ckpt_files( cluster_id, otherProc, owner );
+				}
 				JobQueue->DestroyClassAd(otherKey);
 				DecrementClusterSize(cluster_id, clusterad);
 			}

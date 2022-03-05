@@ -102,6 +102,8 @@ CRITICAL_SECTION Big_fat_mutex; // coarse grained mutex for debugging purposes
 #include "condor_sockfunc.h"
 #include "condor_auth_passwd.h"
 
+#include "da_condor_utils.h"
+
 #if defined ( HAVE_SCHED_SETAFFINITY ) && !defined ( WIN32 )
 #include <sched.h>
 #endif
@@ -6751,6 +6753,16 @@ void CreateProcessForkit::exec() {
 
 		// switch to the cwd now that we are in user priv state
 	if ( m_cwd && m_cwd[0] ) {
+			// Sometimes HTCondor could not find CWD which created by another
+			// server on the NFS partition. Because NFS client stores CWD parent
+			// content in cache and reads old state from it. Adding `ls` for CWD
+			// parent invalidates NFS client cache and forces it to read new 
+			// state from NFS server.
+		const int sync_iwd_timeout = param_integer( "DA__P7__STARTER_SYNC_IWD_TIMEOUT_SEC", 0 );
+		if ( sync_iwd_timeout > 0 ) {
+			try_sync_directory_on_nfs( m_cwd, sync_iwd_timeout, true );
+		}
+
 		if( chdir(m_cwd) == -1 ) {
 				// before we exit, make sure our parent knows something
 				// went wrong before the exec...

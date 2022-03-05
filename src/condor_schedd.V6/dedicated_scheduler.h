@@ -320,6 +320,10 @@ class DedicatedScheduler : public Service {
 	void createAllocations( CAList *idle_candidates, CAList *idle_candidates_jobs, 
 							int cluster, int nprocs, bool is_reconnect);
 
+		// Add matched jobs to existing allocation.
+	void addAllocationResources( AllocationNode *alloc, 
+								 CAList *idle_candidates, CAList *idle_candidates_jobs);
+
 		// This does the work of acting on a schedule, once that's
 		// been decided.  
 	bool spawnJobs( void );

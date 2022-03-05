@@ -857,7 +857,7 @@ DedicatedScheduler::updateStartdAvailability(const std::string& peer, const bool
 		}
 		return true;
 	}
-	const int timeout = param_integer("DA__P7__SCHEDD_STARTD_EVICTION_TIMEOUT");
+	const int timeout = param_integer("DA__P7__SCHEDD_STARTD_EVICTION_TIMEOUT", 0);
 	if ( timeout == 0 ) {
 		return true;
 	}
@@ -2225,6 +2225,8 @@ DedicatedScheduler::computeSchedule( void )
 	int cluster = -1, max_hosts;
 	ClassAd *job = NULL, *ad;
 
+	AllocationNode* alloc = NULL;
+
 	CandidateList *idle_candidates = NULL;
 	CAList *idle_candidates_jobs = NULL;
 
@@ -2309,7 +2311,6 @@ DedicatedScheduler::computeSchedule( void )
 				give_up = true;
 				break;
 			}
-			max_hosts += hosts;
 
 			int proc_id;
 			if( !job->LookupInteger(ATTR_PROC_ID, proc_id) ) {
@@ -2328,6 +2329,12 @@ DedicatedScheduler::computeSchedule( void )
 					break;
 				}
 			}
+
+			if ( allocations->lookup( cluster, alloc ) == 0 && (*alloc->matches)[proc_id] != NULL ) {
+				hosts -= (*alloc->matches)[proc_id]->length();
+				dprintf(D_ALWAYS, "Existing job %d.%d already have some matches!\n", cluster, proc_id);
+			}
+
 			dprintf( D_FULLDEBUG, 
 					 "Trying to find %d resource(s) for dedicated job %d.%d\n",
 					 hosts, cluster, proc_id );
@@ -2341,10 +2348,15 @@ DedicatedScheduler::computeSchedule( void )
 			for( int job_num = 0 ; job_num < hosts; job_num++) {
 				jobs->Append(job);
 			}
+			max_hosts += hosts;
 			nprocs++;
 		}	
 			
 		if (give_up) {
+			continue;
+		}
+		if ( jobs->Length() == 0 ) {
+			dprintf(D_ALWAYS, "Could not find any new jobs for partially allocated cluster %d!\n", cluster);
 			continue;
 		}
 
@@ -2399,8 +2411,12 @@ DedicatedScheduler::computeSchedule( void )
 										idle_candidates_jobs, true) )
 		{
 			printSatisfaction( cluster, idle_candidates, NULL, NULL, NULL, NULL );
-			createAllocations( idle_candidates, idle_candidates_jobs,
-							   cluster, nprocs, false );
+			if ( allocations->lookup(cluster, alloc) == 0 ) {
+				addAllocationResources( alloc, idle_candidates, idle_candidates_jobs );
+			} else {
+				createAllocations( idle_candidates, idle_candidates_jobs,
+								   cluster, nprocs, false );
+			}
 				
  				// we're done with these, safe to delete
 			delete idle_candidates;
@@ -2423,9 +2439,12 @@ DedicatedScheduler::computeSchedule( void )
 											serial_candidates_jobs, true) )
 			{
 				printSatisfaction( cluster, idle_candidates, serial_candidates, NULL, NULL , NULL);
-				createAllocations( serial_candidates, serial_candidates_jobs,
-								   cluster, nprocs, false );
-					
+				if ( allocations->lookup( cluster, alloc ) == 0 ) {
+					addAllocationResources( alloc, serial_candidates, serial_candidates_jobs );
+				} else {
+					createAllocations( serial_candidates, serial_candidates_jobs,
+									   cluster, nprocs, false );
+				}
 					// we're done with these, safe to delete
 				delete idle_candidates;
 				idle_candidates = NULL;
@@ -2915,13 +2934,22 @@ DedicatedScheduler::createAllocations( CAList *idle_candidates,
 									   int cluster, int nprocs,
 									   bool is_reconnect)
 {
-	AllocationNode *alloc;
-	MRecArray* matches=NULL;
-
-	alloc = new AllocationNode( cluster, nprocs );
-	alloc->num_resources = idle_candidates->Number();
-
+	AllocationNode *alloc = new AllocationNode( cluster, nprocs );
 	alloc->is_reconnect = is_reconnect;
+	addAllocationResources( alloc, idle_candidates, idle_candidates_jobs );
+	ASSERT( allocations->insert( cluster, alloc ) == 0 );
+}
+
+
+void
+DedicatedScheduler::addAllocationResources( AllocationNode *alloc, 
+									   		CAList *idle_candidates,
+									   		CAList *idle_candidates_jobs)
+{
+	if ( alloc->num_resources != 0 ) {
+		dprintf(D_ALWAYS, "Adding new resources to partially allocated cluster %d\n", alloc->cluster);
+	}
+	alloc->num_resources += idle_candidates->Number();
 
 		// Walk through idle_candidates, the list should
 		// be sorted by proc.  Put each job into
@@ -2932,10 +2960,6 @@ DedicatedScheduler::createAllocations( CAList *idle_candidates,
 
 	idle_candidates->Rewind();
 	idle_candidates_jobs->Rewind();
-
-		// Assume all procs start at 0, and are monotonically increasing
-	int last_proc = -1;
-	int node = 0;
 
 		// Foreach machine we've matched
 	while( (machine = idle_candidates->Next()) ) {
@@ -2949,42 +2973,32 @@ DedicatedScheduler::createAllocations( CAList *idle_candidates,
 		int proc = -1;
 		job->LookupInteger(ATTR_PROC_ID, proc);
 		if (proc == -1) {
-			EXCEPT("illegal value for proc: %d in dedicated cluster id %d\n", proc, cluster);
+			EXCEPT("illegal value for proc: %d in dedicated cluster id %d\n", proc, alloc->cluster);
 		}
 
 			// Get the match record
 		if( ! (mrec = getMrec(machine, buf)) ) {
  			EXCEPT( "no match for %s in all_matches table, yet " 
  					"allocated to dedicated job %d.0!",
- 					buf.c_str(), cluster ); 
+ 					buf.c_str(), alloc->cluster ); 
 		}
 			// and mark it scheduled & allocated
 		mrec->scheduled = true;
 		mrec->allocated = true;
-		mrec->cluster   = cluster;
+		mrec->cluster   = alloc->cluster;
 		mrec->proc      = proc;
 
-			// We're now at a new proc
-		if( proc != last_proc) {
-			last_proc = proc;
-			node = 0;
-
-				// create a new MRecArray
-			matches = new MRecArray();
-			ASSERT(matches != NULL);
-			matches->fill(NULL);
-			
-				// And stick it into the AllocationNode
-			(*alloc->matches)[proc] = matches;
-			(*alloc->jobs)[proc] = job;
+		if ( (*alloc->matches)[proc] == NULL ) {
+			(*alloc->matches)[proc] = new MRecArray();
+			(*alloc->matches)[proc]->fill( NULL );
+			if ( (*alloc->jobs)[proc] == NULL ) {
+				(*alloc->jobs)[proc] = job;
+			} else if ( (*alloc->jobs)[proc] = job ) {
+				EXCEPT("Different jobs for the same proc: %d.%d\n", alloc->cluster, proc);
+			}
 		}
-
-			// And put the mrec into the matches for this node in the proc
-		(*matches)[node] = mrec;
-		node++;
+		(*alloc->matches)[proc]->add(mrec);
 	}
-
-	ASSERT( allocations->insert( cluster, alloc ) == 0 );
 
 		// Show world what we did
 	alloc->display();
@@ -3114,8 +3128,13 @@ DedicatedScheduler::satisfyJobWithGroups(CAList *jobs, int cluster, int nprocs) 
 			
 				// This group satisfies the request, so create the allocations
 			printSatisfaction( cluster, &candidate_machines, NULL, NULL, NULL, NULL );
-			createAllocations( &candidate_machines, &candidate_jobs,
-							   cluster, nprocs, false );
+			AllocationNode* alloc = NULL;
+			if ( allocations->lookup(cluster, alloc) == 0 ) {
+				addAllocationResources( alloc, &candidate_machines, &candidate_jobs );
+			} else {
+				createAllocations( &candidate_machines, &candidate_jobs,
+								   cluster, nprocs, false );
+			}
 
 				// We successfully allocated machines, our work here is done
 			dprintf(D_FULLDEBUG, "Found matching ParallelSchedulingGroup for job\n");
@@ -3325,6 +3344,10 @@ DedicatedScheduler::AddMrec(
 	match_rec *existing_mrec;
 	if( all_matches->lookup(slot_name, existing_mrec) == 0) {
 		AllocationNode* alloc;
+		// Adding new match for slot with runnig task leads to job allocation 
+		// removal. Which leads to coredump (double free of shadow_rec) when job
+		// tasks finishes. In this case we pretent that update did not produce
+		// match record. Schedd will ignore this update.
 		const bool skip_updates = param_boolean("DA__P7__SCHEDD_SKIP_ACTIVE_SLOT_UPDATE", false);
 		if( skip_updates && allocations->lookup(existing_mrec->cluster, alloc) == 0 ) {
 			if ( alloc->matches && alloc->matches->length() > existing_mrec->proc ) {
@@ -3333,7 +3356,7 @@ DedicatedScheduler::AddMrec(
 				for( idx = 0; idx <= last; idx++ ) {
 					if( (*rec_array)[idx] == existing_mrec ) {
 						dprintf(D_ALWAYS, "DedicatedScheduler: negotiator sent match for %s, but we've already running it, keeping old one\n", slot_name);
-						return existing_mrec;
+						return NULL;
 					}
 				}
 			}
@@ -4202,8 +4225,13 @@ DedicatedScheduler::checkReconnectQueue( void ) {
 			if (machinesToAllocate.Number() > 0) {
 				removeFromList(&jobsToReconnectLater, &jobsToAllocate);
 
-				createAllocations(&machinesToAllocate, &jobsToAllocate, 
-							  last_id.cluster, nprocs, true);
+				AllocationNode* alloc = NULL;
+				if ( allocations->lookup(id.cluster, alloc) == 0 ) {
+					addAllocationResources( alloc, &machinesToAllocate, &jobsToAllocate );
+				} else {
+					createAllocations( &machinesToAllocate, &jobsToAllocate, 
+									   last_id.cluster, nprocs, true);
+				}
 			}
 		
 			nprocs = 0;
@@ -4344,8 +4372,13 @@ DedicatedScheduler::checkReconnectQueue( void ) {
 		// from the reconnectLater list
 		removeFromList(&jobsToReconnectLater, &jobsToAllocate);
 
-		createAllocations(&machinesToAllocate, &jobsToAllocate, 
-					  id.cluster, nprocs, true);
+		AllocationNode* alloc = NULL;
+		if ( allocations->lookup(id.cluster, alloc) == 0 ) {
+			addAllocationResources( alloc, &machinesToAllocate, &jobsToAllocate );
+		} else {
+			createAllocations( &machinesToAllocate, &jobsToAllocate, 
+							   id.cluster, nprocs, true);
+		}
 		
 	}
 	spawnJobs();

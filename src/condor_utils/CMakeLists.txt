@@ -270,6 +270,8 @@ cron_job_mode.cpp
 cron_job_params.cpp
 cronos.cpp
 cron_param.cpp
+da_condor_utils.cpp
+da_condor_utils.h
 dagman_utils.cpp
 dagman_utils.h
 data_reuse.cpp
