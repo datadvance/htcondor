@@ -2993,11 +2993,16 @@ DedicatedScheduler::addAllocationResources( AllocationNode *alloc,
 			(*alloc->matches)[proc]->fill( NULL );
 			if ( (*alloc->jobs)[proc] == NULL ) {
 				(*alloc->jobs)[proc] = job;
-			} else if ( (*alloc->jobs)[proc] = job ) {
+			} else if ( (*alloc->jobs)[proc] != job ) {
 				EXCEPT("Different jobs for the same proc: %d.%d\n", alloc->cluster, proc);
 			}
 		}
 		(*alloc->matches)[proc]->add(mrec);
+	}
+
+	if ( alloc->status != A_NEW && param_boolean("DA__P7__SCHEDD_RESCHEDULE_JOB_WITH_NEW_RESOURCES", false) ) {
+		dprintf(D_ALWAYS, "Cluster %d got new resources, status is set to NEW (was %d)\n", alloc->cluster, alloc->status);
+		alloc->status = A_NEW;
 	}
 
 		// Show world what we did
@@ -3490,11 +3495,11 @@ DedicatedScheduler::DelMrec( char const* id )
 			// pointer in there.
 
 		bool found_it = false;
-		for( int proc_index = 0; proc_index < alloc->num_procs; proc_index++) {
+		for( int proc_index = 0; !found_it && proc_index < alloc->num_procs; proc_index++) {
 			MRecArray* rec_array = (*alloc->matches)[proc_index];
 			int i, last = rec_array->getlast();
 
-			for( i=0; i<= last; i++ ) {
+			for( i=0; !found_it && i<= last; i++ ) {
 					// In case you were wondering, this works just fine if
 					// the mrec we care about is in the last position.
 					// The first assignment will be a no-op, but no harm
@@ -3514,6 +3519,10 @@ DedicatedScheduler::DelMrec( char const* id )
 						// Truncate our array so we realize the match is
 						// gone, and don't consider it in the future.
 					rec_array->truncate(last);
+						// Allocation may get new matches instead of deleted.
+						// Keep stored number of resources in synch.
+					ASSERT( alloc->num_resources > 0 && "Allocation has wrong number of resources!" );
+					alloc->num_resources -= 1;
 				}
 			}
 		}
@@ -3819,8 +3828,14 @@ DedicatedScheduler::setScheduler( ClassAd* job_ad )
 		return false;
 	}
 
+	const bool setattr_for_exact_proc = param_boolean( "DA__P7__SCHEDD_SET_SCHEDD_ATTR_FOR_EXACT_PROC", false );
 	while( SetAttributeString(cluster, proc, ATTR_SCHEDULER,
 							  ds_name, NONDURABLE) ==  0 ) {
+			// `setScheduler` is called for all procs.
+			// Not stopping here produces unnecessary warning for unknown proc.
+		if ( setattr_for_exact_proc ) {
+			return true;
+		}
 		proc++;
 	}
 	return true;
@@ -3832,58 +3847,69 @@ DedicatedScheduler::setScheduler( ClassAd* job_ad )
 void
 DedicatedScheduler::checkSanity( void )
 {
-	if( ! unused_timeout ) {
-			// Without a value for the timeout, there's nothing to
-			// do (yet).
+	const int startd_timeout = param_integer( "DA__P7__SCHEDD_STARTD_EVICTION_TIMEOUT", 0 );
+	const int request_claim_timeout = param_integer( "REQUEST_CLAIM_TIMEOUT", 0 );
+		// Without a value for the timeout, there's nothing to do.
+	if( unused_timeout == 0 && startd_timeout == 0 && request_claim_timeout == 0 ) {
 		return;
 	}
 
 	dprintf( D_FULLDEBUG, "Entering DedicatedScheduler::checkSanity()\n" );
+	const int now = (int)time( NULL );
 
-		// Maximum unused time for all claims that aren't already over
-		// the config-file-specified limit.
-	int max_unused_time = 0;
-	int tmp;
+		// When to call `checkSanity` next time based on current unused times and limits.
+	int next_call_delay = 0;
+	int resource_unused;
+	int resource_timeout;
 	match_rec* mrec;
 
 	std::set<std::string> matched_peers;
 
 	all_matches->startIterations();
     while( all_matches->iterate( mrec ) ) {
-		tmp = getUnusedTime( mrec );
-		if( tmp >= unused_timeout ) {
+		if ( mrec->status == M_STARTD_CONTACT_LIMBO && request_claim_timeout != 0 ) {
+			resource_unused = now - mrec->entered_current_status;
+			resource_timeout = request_claim_timeout;
+		} else {
+			resource_unused = getUnusedTime( mrec );
+			resource_timeout = unused_timeout;
+		}
+		if( resource_timeout != 0&& resource_unused >= resource_timeout ) {
 			char namebuf[1024];
 			namebuf[0] = '\0';
 			mrec->my_match_ad->LookupString( ATTR_NAME, namebuf, sizeof(namebuf) );
 			dprintf( D_ALWAYS, "Resource %s has been unused for %d seconds, "
-					 "limit is %d, releasing\n", namebuf, tmp,
-					 unused_timeout );
+					 "limit is %d, releasing\n", namebuf, resource_unused,
+					 resource_timeout );
 			releaseClaim( mrec );
 			continue;
 		}
-		if( tmp > max_unused_time ) {
-			max_unused_time = tmp;
+		if( resource_timeout != 0 ) {
+			const int next_call_for_resource = resource_timeout - resource_unused;
+			if ( next_call_delay == 0 || next_call_delay > next_call_for_resource ) {
+				next_call_delay = next_call_for_resource;
+			}
 		}
-		matched_peers.insert(mrec->peer);
+		if ( startd_timeout != 0 ) {
+			matched_peers.insert( mrec->peer );
+		}
 	}
 
 	// Check if some of evicted statd become available.
-	const double timeout = param_integer("DEDICATED_SCHEDULER_STARTD_EVICTION_TIMEOUT");
-	if (timeout != 0) {
-		for (auto it = matched_peers.cbegin(); it != matched_peers.cend(); ++it) {
+	if ( startd_timeout != 0 ) {
+		for ( auto it = matched_peers.cbegin(); it != matched_peers.cend(); ++it ) {
 			auto fit = evicted_startd.find(*it);
-			const time_t now = time(NULL);
 			// Startd available or checked not long ago, skip for now.
-			if (fit == evicted_startd.end() || now - fit->second.second <= timeout / 4.0) {
+			if ( fit == evicted_startd.end() || now - fit->second.second <= startd_timeout / 4 ) {
 				continue;
 			}
 			// Startd most propbably dead, checked more than once. And still not available.
-			if (fit->second.first != fit->second.second && now - fit->second.first > timeout) {
+			if ( fit->second.first != fit->second.second && now - fit->second.first > startd_timeout ) {
 				continue;
 			}
 			ReliSock rsock;
     		rsock.timeout(2);
-			if (rsock.connect(it->c_str())) {
+			if ( rsock.connect(it->c_str()) ) {
 				evicted_startd.erase(fit);
 				rsock.close();
 			} else {
@@ -3892,17 +3918,15 @@ DedicatedScheduler::checkSanity( void )
 		}
 	}
 
-	if( max_unused_time ) {
+	if( next_call_delay != 0 ) {
 			// we've got some unused claims.  we need to make sure
 			// we're going to wake up in time to get rid of them, if
 			// they're still unused.
-		tmp = unused_timeout - max_unused_time;
-		ASSERT( tmp > 0 );
 		if( sanity_tid == -1 ) {
 				// This must be the first time we've called
 				// checkSanity(), so we actually have to register a
 				// timer, instead of just resetting it.
-			sanity_tid = daemonCore->Register_Timer( tmp, 0,
+			sanity_tid = daemonCore->Register_Timer( next_call_delay, 0,
   				         (TimerHandlercpp)&DedicatedScheduler::checkSanity,
 						 "checkSanity", this );
 			if( sanity_tid == -1 ) {
@@ -3913,10 +3937,10 @@ DedicatedScheduler::checkSanity( void )
 				// the timer went off, or b/c we just called
 				// checkSanity() ourselves, we can just reset the
 				// timer for the new value and everything will work.
-			daemonCore->Reset_Timer( sanity_tid, tmp );
+			daemonCore->Reset_Timer( sanity_tid, next_call_delay );
 		}
 		dprintf( D_FULLDEBUG, "Timer (%d) will call checkSanity() "
-				 "again in %d seconds\n", sanity_tid, tmp );
+				 "again in %d seconds\n", sanity_tid, next_call_delay );
 	} else {
 			// We have no unused claims, so we don't need to call
 			// checkSanity() again ourselves.  It'll get called when

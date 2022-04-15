@@ -511,12 +511,12 @@ class DedicatedScheduler : public Service {
 	time_t startdQueryTime; // Time to get all the startds from collector
 
 	// Added to monitor unavailable startd daemons and ignore them.
-	// Parameter DEDICATED_SCHEDULER_STARTD_EVICTION_TIMEOUT is used to
+	// Parameter DA__P7__SCHEDD_STARTD_EVICTION_TIMEOUT is used to
 	// determine number of seconds when startd may be completely forgotten.
 	// If parameter set to 0 monitoring is disabled.
 public:
 	// Tell scheduler if startd is available. Returns `false` when startd is 
-	// unavailable more than DEDICATED_SCHEDULER_STARTD_EVICTION_TIMEOUT seconds.
+	// unavailable more than DA__P7__SCHEDD_STARTD_EVICTION_TIMEOUT seconds.
 	// In this case it is good idea to forget about existings claims on this startd.
 	bool updateStartdAvailability(const std::string& peer, const bool available);
 
