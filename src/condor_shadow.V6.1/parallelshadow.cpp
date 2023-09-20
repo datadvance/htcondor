@@ -227,13 +227,15 @@ ParallelShadow::getResources( void )
         EXCEPT( "Failed to get number of procs" );
     }
 
+	dprintf(D_ALWAYS, "DEBUG SHADOW NPROCS=%d\n", numProcs);
+
         /* Now, do stuff for each proc: */
     for ( int i=0 ; i<numProcs ; i++ ) {
         if( !sock->code( numInProc ) ) {
             EXCEPT( "Failed to get number of matches in proc %d", i );
         }
 
-        dprintf ( D_FULLDEBUG, "Got %d matches for proc # %d\n",
+        dprintf ( D_ALWAYS, "Got %d matches for proc # %d\n",
 				  numInProc, i );
 
         for ( int j=0 ; j<numInProc ; j++ ) {
@@ -242,7 +244,7 @@ ParallelShadow::getResources( void )
                 EXCEPT( "Problem getting resource %d, %d", i, j );
             }
 			ClaimIdParser idp( claim_id );
-            dprintf( D_FULLDEBUG, "Got host: %s id: %s\n", host, idp.publicClaimId() );
+            dprintf( D_ALWAYS, "Got host: %s id: %s\n", host, idp.publicClaimId() );
             
 			job_ad = new ClassAd();
 
@@ -325,7 +327,7 @@ ParallelShadow::getResources( void )
 
 	numNodes = nodenum;  // for later use...
 
-    dprintf ( D_PROTOCOL, "#1 - Shadow started; %d machines gotten.\n", 
+    dprintf ( D_ALWAYS, "#1 - Shadow started; %d machines gotten.\n", 
 			  numNodes );
 
     startMaster();

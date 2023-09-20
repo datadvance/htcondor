@@ -116,6 +116,8 @@ extern GridUniverseLogic* _gridlogic;
 #include "enum_utils.h"
 #include "credmon_interface.h"
 
+#include "da_condor_utils.h"
+
 #ifdef WIN32
 #define DIR_DELIM_STR "\\"
 #else
@@ -7740,6 +7742,19 @@ Scheduler::contactStartd( ContactStartdArgs* args )
 	jobAd->Assign( ATTR_STARTER_HANDLES_ALIVES, 
 					param_boolean("STARTER_HANDLES_ALIVES",true) );
 
+    std::string mrec_name;
+    int job_cluster = -1;
+    int job_proc = -1;
+    jobAd->LookupInteger(ATTR_CLUSTER_ID, job_cluster);
+    jobAd->LookupInteger(ATTR_PROC_ID, job_proc);
+    mrec->my_match_ad->LookupString(ATTR_NAME, mrec_name);
+    dprintf(D_ALWAYS, "DEBUG BLOCK ContactStartd %p %d.%d %d %s\n", mrec, cluster, proc, mrec->status, mrec_name.c_str());
+    dprintf(D_ALWAYS, "DEBUG BLOCK ContactStartd AGAIN %d.%d CLAIM %s PUBLIC %s\n", job_cluster, job_proc, mrec->claimId(), mrec->publicClaimId());
+    if (mrec->claim_requester.get()) {
+		dprintf(D_ALWAYS, "DEBUG BLOCK ContactStartd FAILED CALLBACK SET FOR %d.%d %s\n", cluster, proc, mrec_name.c_str());
+		dprintf_backtrace();
+    }					
+
 	// Setup to claim the slot asynchronously
 
 	classy_counted_ptr<DCMsgCallback> cb = new DCMsgCallback(
@@ -7802,7 +7817,17 @@ Scheduler::claimedStartd( DCMsgCallback *cb ) {
 		dedicated_scheduler.updateStartdAvailability(match->peer, startd_available);
 	}
 
+    int job_cluster = -1;
+    int job_proc = -1;
+    std::string mrec_name;
+    msg->getJobAd()->LookupInteger(ATTR_CLUSTER_ID, job_cluster);
+    msg->getJobAd()->LookupInteger(ATTR_PROC_ID, job_proc);
+    match->my_match_ad->LookupString(ATTR_NAME, mrec_name);
+    dprintf(D_ALWAYS, "DEBUG BLOCK claimedStartd %d.%d %d %s\n", job_cluster, job_proc, match->status, mrec_name.c_str());
+    dprintf(D_ALWAYS, "DEBUG BLOCK claimedStartd MATCH %p %d.%d CLAIM %s PUBLIC %s\n", match, match->cluster, match->proc, match->claimId(), match->publicClaimId());
+
 	if( !msg->claimed_startd_success() ) {
+		dprintf(D_ALWAYS, "DEBUG BLOCK CLAIM FAILED!\n");
 		// Re-enable the job for matching in the PrioRec array
 		for (int i = 0; i < N_PrioRecs; i++) {
 			if (PrioRec[i].id.cluster == match->cluster && PrioRec[i].id.proc == match->proc) {
@@ -7921,7 +7946,7 @@ Scheduler::claimedStartd( DCMsgCallback *cb ) {
 			// dprintf a message saying we got a new match, but be certain
 			// to only output the public claim id (keep the capability private)
 		ClaimIdParser idp( msg->leftover_claim_id() );
-		dprintf( D_FULLDEBUG,
+		dprintf( D_ALWAYS,
 				"Received match from startd, leftover slot ad %s claim %s\n",
 				slot_name, idp.publicClaimId()  );
 

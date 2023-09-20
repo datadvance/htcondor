@@ -2236,7 +2236,7 @@ RemoteResource::locateReconnectStarter( void )
 	getClaimId(claimid);
 
 	ClaimIdParser idp( claimid );
-	dprintf( D_FULLDEBUG, "gjid is %s claimid is %s\n", gjid, idp.publicClaimId());
+	dprintf( D_ALWAYS, "gjid is %s claimid is %s\n", gjid, idp.publicClaimId());
 	ClassAd reply;
 	if( dc_startd->locateStarter(gjid, claimid, public_schedd_addr, &reply, 20) ) {
 			// it worked, save the results and return success.

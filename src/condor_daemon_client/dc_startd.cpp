@@ -29,6 +29,7 @@
 #include "condor_claimid_parser.h"
 #include "my_username.h"
 
+#include "da_condor_utils.h"
 
 DCStartd::DCStartd( const char* tName, const char* tPool ) 
 	: Daemon( DT_STARTD, tName, tPool )
@@ -248,6 +249,7 @@ ClaimStartdMsg::readMsg( DCMessenger * /*messenger*/, Sock *sock ) {
 			// no need to log success, because DCMsg::reportSuccess() will
 	} else if( m_reply == NOT_OK ) {
 		dprintf( failureDebugLevel(), "Request was NOT accepted for claim %s\n", description() );
+		dprintf_backtrace();
 	} else if( m_reply == REQUEST_CLAIM_LEFTOVERS || m_reply == REQUEST_CLAIM_LEFTOVERS_2 ) {
 		bool recv_ok = false;
 		if ( m_reply == REQUEST_CLAIM_LEFTOVERS_2 ) {
