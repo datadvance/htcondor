@@ -50,8 +50,6 @@
 #include "condor_qmgr.h"
 #include "schedd_negotiate.h"
 
-#include "da_condor_utils.h"
-
 #include <set>
 #include <vector>
 
@@ -96,7 +94,6 @@ AllocationNode::AllocationNode( int cluster_id, int n_procs )
 
 AllocationNode::~AllocationNode()
 {
-	dprintf(D_ALWAYS, "DELETE ALLOC %d.0 %p\n", cluster, this);
 	int i;
 	for( i=0; i<num_procs; i++ ) {
 		if( (*matches)[i] ) {
@@ -120,10 +117,10 @@ AllocationNode::setClaimId( const char* new_id )
 void
 AllocationNode::display( void ) const
 {
-	const int level = D_ALWAYS;
-	//if( ! IsFulldebug(D_FULLDEBUG) ) {
-	//	return;
-	//}
+	const int level = D_FULLDEBUG;
+	if( ! IsFulldebug(D_FULLDEBUG) ) {
+		return;
+	}
 	dprintf( level, "Allocation for job %d.0, nprocs: %d\n",
 			 cluster, num_procs );
 	int p, n, num_nodes;
@@ -132,7 +129,6 @@ AllocationNode::display( void ) const
 	char buf[256];
 	for( p=0; p<num_procs; p++ ) {
 		ma = (*matches)[p];
-		dprintf(level, "ALLOC %p MATCHES FOR %d: %p LENGTH=%d\n", this, p, ma, ma ? ma->length() : 0);
 		if( ! ma ) {
 			return;
 		}
@@ -140,7 +136,6 @@ AllocationNode::display( void ) const
 		for( n=0; n<=num_nodes; n++ ) {
 			mrec = (*ma)[n];
 			if( mrec ) {
-				dprintf(level, "MREC STATUS=%d\n", mrec->status);
 				snprintf( buf, 256, "%d.%d.%d: ", cluster, p, n );
 				displayResource( mrec->my_match_ad, buf, level );
 			}
@@ -691,7 +686,7 @@ DedicatedScheddNegotiate::scheduler_skipJob(JobQueueJob *jobad, ClassAd * /*matc
 		// This is a fast claim of a split dynamic resource
 		dedicated_scheduler.incrementSplitMatchCount();
 		if (dedicated_scheduler.getSplitMatchCount() > dedicated_scheduler.getResourceRequestSize()) {
-                        dprintf(D_ALWAYS, "Skipping further matches: (split match count) %d > %d (resource request size)\n", dedicated_scheduler.getSplitMatchCount(), dedicated_scheduler.getResourceRequestSize());
+                        dprintf(D_FULLDEBUG, "Skipping further matches: (split match count) %d > %d (resource request size)\n", dedicated_scheduler.getSplitMatchCount(), dedicated_scheduler.getResourceRequestSize());
 			FreeJobAd( jobad );
 			return true;
 		}
@@ -706,14 +701,14 @@ DedicatedScheddNegotiate::scheduler_handleMatch(PROC_ID job_id,char const *claim
 	ASSERT( claim_id );
 	ASSERT( slot_name );
 
-	dprintf(D_ALWAYS,
+	dprintf(D_FULLDEBUG,
 			"DedicatedScheduler: Received match for job %d.%d: %s\n",
 			job_id.cluster, job_id.proc, slot_name);
 
 	bool skip_all = false;
 	const char * because = "";
 	if( scheduler_skipJob(GetJobAd(job_id), &match_ad, skip_all, because) ) {
-		dprintf(D_ALWAYS,
+		dprintf(D_FULLDEBUG,
 				"DedicatedScheduler: job %d.%d %s.\n",
 				job_id.cluster,job_id.proc,
 				because);
@@ -1197,7 +1192,7 @@ DedicatedScheduler::giveMatches( int, Stream* stream )
 	MRecArray* matches;
 	int i, p, last;
 
-	dprintf( D_ALWAYS, "Entering DedicatedScheduler::giveMatches()\n" );
+	dprintf( D_FULLDEBUG, "Entering DedicatedScheduler::giveMatches()\n" );
 
 	stream->decode();
 	if( ! stream->code(cluster) ) {
@@ -1275,8 +1270,8 @@ DedicatedScheduler::giveMatches( int, Stream* stream )
 
 	stream->encode();
 
-	dprintf( D_ALWAYS, "Pushing %d proc(s) for cluster %d ALLOC: %p\n",
-			 alloc->num_procs, cluster, alloc );
+	dprintf( D_FULLDEBUG, "Pushing %d proc(s) for cluster %d\n",
+			 alloc->num_procs, cluster );
 	if( ! stream->code(alloc->num_procs) ) {
 		dprintf( D_ALWAYS, "ERROR in giveMatches: can't send num procs\n" );
 		return FALSE;
@@ -1285,7 +1280,7 @@ DedicatedScheduler::giveMatches( int, Stream* stream )
 	for( p=0; p<alloc->num_procs; p++ ) {
 		matches = (*alloc->matches)[p];
 		last = matches->getlast() + 1; 
-		dprintf( D_ALWAYS, "In proc %d, num_matches: %d\n", p, last );
+		dprintf( D_FULLDEBUG, "In proc %d, num_matches: %d\n", p, last );
 		if( ! stream->code(last) ) {
 			dprintf( D_ALWAYS, "ERROR in giveMatches: can't send "
 					 "number of matches (%d) for proc %d\n", last, p );
@@ -2025,7 +2020,7 @@ DedicatedScheduler::spawnJobs( void )
 			EXCEPT( "spawnJobs(): allocation node has NULL first match!" );
 		}
 
-		dprintf( D_ALWAYS, "DedicateScheduler::spawnJobs() - "
+		dprintf( D_FULLDEBUG, "DedicateScheduler::spawnJobs() - "
 				 "job=%d.%d on %s\n", id.cluster, id.proc, mrec->peer );
 
 		GetAttributeInt( id.cluster, id.proc, ATTR_JOB_UNIVERSE, &univ );
@@ -2092,9 +2087,6 @@ DedicatedScheduler::spawnJobs( void )
 		for( p=0; p<allocation->num_procs; p++ ) {
 			n = ((*allocation->matches)[p])->getlast();
 			for( i=0; i<=n; i++ ) {
-				match_rec* mrec = (*(*allocation->matches)[p])[i];
-				dprintf(D_ALWAYS, "ALLOC MATCH %p %d.%d.%d STATUS=%d\n", mrec, allocation->cluster, p, i, mrec->status);
-				dprintf(D_ALWAYS, "ALLOC MATCH CLAIM %d.%d %s PUBLIC %s\n", mrec->cluster, mrec->proc, mrec->claimId(), mrec->publicClaimId());
 				(*(*allocation->matches)[p])[i]->shadowRec = srec;
 				(*(*allocation->matches)[p])[i]->setStatus( M_ACTIVE );
 			}
@@ -3516,9 +3508,6 @@ DedicatedScheduler::DelMrec( char const* id )
 					// getlast() will return the right value.
 				if( (*rec_array)[i] == rec ) {
 					found_it = true;
-					dprintf(D_ALWAYS, "DELETE MREC %p ALLOC %d.%d.%d IS %p ARRAY IS %p OF LENGTH %d\n", rec, rec->cluster, proc_index, i, alloc, rec_array, rec_array->length());
-					dprintf(D_ALWAYS, "DELETE MREC CLAIM %s PUBLIC %s\n", rec->claimId(), rec->publicClaimId());
-					dprintf_backtrace();
 					(*rec_array)[i] = (*rec_array)[last];
 					(*rec_array)[last] = NULL;
 						// We want to decrement last so we break out of
@@ -3812,33 +3801,17 @@ DedicatedScheduler::printSatisfaction( int cluster, CAList* idle, CAList *serial
 		had_one = true;
 	}
 	msg += " resources";
-	dprintf( D_ALWAYS, "%s\n", msg.c_str() );
+	dprintf( D_FULLDEBUG, "%s\n", msg.c_str() );
 
 	if( unclaimed && unclaimed->Length() ) {
-		dprintf( D_ALWAYS, "Generating %d resource requests for job %d\n", 
+		dprintf( D_FULLDEBUG, "Generating %d resource requests for job %d\n", 
 				 unclaimed->Length(), cluster  );
 	}
 
 	if( busy && busy->Length() ) {
-		dprintf( D_ALWAYS, "Preempting %d resources for job %d\n", 
+		dprintf( D_FULLDEBUG, "Preempting %d resources for job %d\n", 
 				 busy->Length(), cluster  );
 	}
-
-    CAList* resources[] = {idle, serial, limbo, unclaimed, busy};
-    ClassAd *resource;
-    std::string name;
-    std::string claim;
-    for (CAList* res_list: resources) {
-		if ( !res_list || !res_list->Length() ) {
-			continue;
-		}
-		res_list->Rewind();
-		while( (resource = res_list->Next()) ) {
-			resource->LookupString(ATTR_NAME, name);
-			resource->LookupString(ATTR_PUBLIC_CLAIM_ID, claim);
-			dprintf(D_ALWAYS, "    %s[%s]\n", name.c_str(), claim.c_str());
-		}
-    }	
 }
 
 
